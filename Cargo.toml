@@ -1,0 +1,12 @@
+[package]
+name="structural_typed"
+version="0.1.0"
+edition="2021"
+
+
+[features]
+trace=["peg/trace"]
+
+
+[dependencies]
+peg="*"

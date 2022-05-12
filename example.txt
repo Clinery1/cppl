@@ -1,0 +1,269 @@
+/*
+TODO: Replace TBD items
+# Names
+Names can be of any length and contain any unicode characters except `.`, `(`, ` ` (space),
+`\n` (newline), `=`, `:`, `~`, `+`, `^`, `-`, `|`, `,`, `)`, `<`, `>`, `[`, `]`.
+When performing an operation on a name, the operator should have either a
+space or another of the terminating characters between the name and the operator or else it will be
+assumed to be part of the name.
+
+## Why allow unicode characters to be in names?
+It's simple. Names are a way for programmers to identify something. It a negligible runtime impact,
+so the names can be anything and still not change the overall function of the code.
+
+# Modules
+Modules are declared with the `module` keyword and the name of the file without the extension.
+For example: `module my_module` would go to the file `my_module.TBD` in the same directory or the
+file `mod.TBD` in the `my_module` directory.
+
+# Imports
+Imports are specified with the `import` keyword and a path to the import. For example:
+`import std.collections.List`. You can rename imports by adding `as [NAME]` to the import like so:
+`import std.collections.List as GenericList`.
+
+## Importing constraints
+Simply add a `::` before the constraint and after the path like so:
+`import std.collections::List as ListConstraint`. As seen here, we use a cool feature that allows
+us to define a constraint for the current module simply by calling it `Self`. See
+`Constraints/Self constraints` for more.
+
+# Objects
+An object is simply a list of named objects. Yes, that is a recursive definition, but objects are,
+by definition, recursive. Of course, there is no real object that is infinitely recursive, but
+some can go quite far. Additionally, objects have an end and they are always at an immutable
+object (see "Immutable objects").
+
+## Blocks are objects
+... and so are modules.
+This may be confusing at first, but the module I am writing this in is an object. This module can
+be defined as an object in another file quite easily and the person using it would have no idea if
+it is a module or object. As such, variables defined as public can be seen if the block is stored
+in a variable. Otherwise the block is deleted after it is executed.
+
+### Why are modules objects?
+Because modules are blocks, and blocks are objects, so modules are also objects.
+
+## Overriding the object returned by a block
+Blocks can override the return value by using the `return` keyword and specifying an object/path.
+If the `return` keyword is used and no object/path is specified, then the default object is
+returned.
+
+## Creating objects
+There are a two ways to create objects: the `new` keyword and blocks.
+
+### The `new` keyword
+The easiest is to use the `new` keyword and create a copy of an existing object. The downside is
+that the keyword only works for existing objects.
+
+### From a block
+This is *the* most useful way of creating objects since you cannot copy an object if it does not
+exist yet. To use this method, simply create some variables in a block. It is that simple, but do
+remember to make them public or you cannot access them from outside the block.
+
+## Private fields
+Since blocks are objects, private fields still have to exist after the object's creation. Since
+they are private, this makes their value impossible to retrieve, but there is a solution for that:
+the `Option` object (see "About the `Option` object"). When accessing a field, the `Option` object is always
+returned, but since it is a union, it behaves like all of the types listed in the union. When a
+public field is accessed, the `Option` object always contains the correct object and never `false`,
+but when accessing private fields, a check needs to be done to make sure it is accessible. This
+makes the union object `<name:String>|<public name:String>` safe to use because the programmer has
+to check if `object.name` is private or not.
+
+### About the `Option` object
+The Option object is defined like so: `constraint Option(~T)=~T|None`
+To determine if the option is the object you want, you can test if the value is equal to `false`.
+If that returns true, then the value **IS NOT** the object you want, and the error can be handled
+accordingly.
+
+## Immutable objects
+There are a few immutable objects, but that is because they contain data and not objects. The
+immutable objects are: `Bool` for true/false values; `Uint`, `Int`, `LongUInt`, `LongInt`, `UByte`,
+and `Byte` for signed and unsigned integers; `SingleFloat`, and `DoubleFloat` for floating point
+numbers (NOTE: these are equivalent to the IEEE 754 single and double precision floats); the `None`
+type for representing nothing; references (uses the `ref` keyword); `Slice[~T]` which contains
+an unsized array of objects with constraint T; lazy eval objects which are blocks that have not been
+executed and can be executed at a later time; atomic references (uses the `atomic ref` keyword);
+module objects.
+
+### Module objects
+Module objects are created when you create a new module, so at compile-time. They are essentially a
+form of lazy eval block, but with slight differences. The main difference is that they are not
+executed with the `eval` keyword but instead with the `new` keyword and the resulting object
+conforms to constraint `[MODULE_NAME]::Self`, if it exists.
+
+### The Bool object
+There are only two possible values for the Bool object: `true` and `false`.
+
+### Integers
+`UInt` and `Int` are both 32bit; `LongUInt` and `LongInt` are 64bit; `UByte` and `Byte` are both a
+single byte. They work exactly as expected and just like other langauges that have multiple integer
+types.
+
+### Floats
+`SingleFloat`, as defined in IEEE 754, is a 32bit value representing a range of numbers, Infinity,
+and NaN. `DoubleFloat` is the same, but 64bit
+
+### The `None` object
+This represents nothing, null, nil, `Option::None`, or any other version of a lack of data.
+
+### Template objects
+See "Functions"
+
+### Slice objects
+These are a densely packed list of objects all conforming to the same constraint.
+
+### References
+A reference is simply a pointer to a ref-counted value and can be thought of as this constraint:
+```
+constraint RefCount(~T)=<
+    public mutable refs:UInt,
+    obj:~T|None,
+    public get:Fn(<self:@>,ref ~T),
+    public get_mutable:Fn(<self:@>,Option(~T)),
+>
+```
+Now, you can see how this could lead to infinite allocation of `RefCount` objects when calling
+`get`, but since references are an implementation detail, this is actually not the case and the
+above constraint is actually incorrect.
+
+### Atomic references
+These are references that can be safely shared across threads.
+
+## Object fields
+Fields can be both created and deleted, but deleting a field will change the constraints.
+
+### Deleting a field
+To delete a field use the keyword `delete` just like in javascript. If the object in the field
+fits the `Destructable` constraint, then the function `destruct` is run on the object.
+
+#### Fields that can never be deleted
+The `destruct` field. This is required because every object needs to be destructed somehow. The
+upside is that you can be sure that the field always exists.
+
+### Creating a field
+To create a field, you simply use its path as the name when creating a variable like so:
+`var my_object.new_field={}`
+
+# Constraints
+Constraints are a way to make the list of possible objects that can fit in a field smaller, and to
+specify requirements for the object to fulfil.
+There is no runtime difference between using a named constraint and the raw constraint notation. By
+default, fields in an object are private, but can be made public with the `public` keyword. Fields
+are also immutable by default and can be made mutable with the `mutable` keyword. The mutability of
+a field can be further constrained with the `self` attribute on the `mutable` keyword like so:
+`mutable[self]`.
+
+## Full constraints/Fully constrained objects
+A full constraint is when an object fully equals a constraint, recursively, with no extra fields.
+Full constraints do not occur often, but when they do they usually occur in modules. Here is an
+example of a fully constrained object:
+```
+constraint MyObject=<name:String>
+var my_object:MyObject={
+    var name="Billy Bob Joe VIII"
+}
+```
+Here, the variable `my_object` specifies the constraint `MyObject` which happens to be a fully
+constrained object.
+
+## Generic constraints
+Generic constraints are defined inside parenthesis, unlike most other languages, and are refered to
+with a tilde ('~'). Here is an example of a list type using generic constraints: ```
+constraint List(~Type)=<
+    public mutable[self] items:Slice(~Type),
+    public mutable[self] length:LongUInt,
+    public append:
+>
+```
+
+## Self constraints
+Self constraints are constraints that define what a module/block should result in. This is usually
+used in creating a module since modules are objects themselves.
+
+## Algebraic operations
+Algebraic operations are performed from left to right, and there is no order of operations, so make
+sure to order your operations carefully!
+
+### Intersection
+Constraint intersection is the action of taking parts of a constraint that are equal
+
+## Required constraints
+### The `Destructable` constraint
+The destructable constraint (`constraint Destructable=<destruct:Fn(@)>`) is one of a few
+constraints that are required for every object. The `destruct` function can simply be an empty
+function, but it always has to exist.
+
+# Functions
+Functions as they are in other languages do not exist in this language, but instead are replaced
+with lazy eval objects, which are evaluated at runtime instead of compile-time. To get a lazy eval
+object, you use the `lazy` keyword and provide parameters and return constraints like so: ```
+lazy[ParametersConstraint,ReturnConstraint] {/* block stuff goes here*/}
+```
+All items in the parameter object are set to public, so using the `public` keyword is redundant.
+The `mutable` keyword can also be used, just like other constraints.
+
+## How to access parameters
+Parameters are stored in the `parameters` variable, which is automatically created in the
+lazy eval's block. The `parameters` variable has the constraint provided to the lazy eval with the
+difference in that constraint is public. You simply use the `parameters` variable like any other
+variable.
+---------------------------------------------------------------------------------------------------
+NOTE: the publicity requirement **IS NOT** recursive, so objects in fields do not have their
+publicity altered.
+*/
+
+
+// This is the most simple constraint, and one that fits every possible object.
+constraint Any=<>
+// This one is a constraint for a list
+constraint List(~T)=<
+    // a field can specify publicity rules and mutability rules. As seen here, we only allow this
+    // structure to modify the field `length`.
+    public mutable[self] length:UInt,
+    // The slice syntax is simply syntax sugar for a union of every object that contains only
+    // sequential numeric field names of the same type which allows for compiler optimizations
+    // An example of the equivalent code `<0:Any>|<0:Any,1:Any>|<0:Any,1:Any,2:Any,3:Any>|....`
+    // (see union type for more information)
+    mutable items:Slice(~T),
+    // the `@` symbol means "the structure this item belongs to," so the structure called `List`
+    // in this specific instance
+    public append:Fn(<self:List(~T),data:~T>,UInt),
+    public remove:Fn(<self:List(~T),idx:UInt>,Option(~T)),
+>
+// Types can be combined algebraically with `^` (intersection) to further constrain the possible
+// objects, `|` (either) to increase the possible objects, `+` (addition) to require both
+// constraints, or `-` (subtraction) to remove parts of the left constraint. In this example, we
+// further constrain the `List` type with the requirement that all previous `Any` constrained
+// objects have to be `Int` constrained objects. 
+constraint IntList=List+<
+    mutable items:Slice(Int),
+    public append:Fn(<self:IntList,data:Int>,UInt),
+    public remove:Fn(<self:IntList,idx:UInt>,Option(Int)),
+>
+
+
+
+// You can also store lazy evals in variables just like other objects.
+var my_function=lazy[<my_parameter:DebugFormat>,MyReturnType] {}
+
+// Templates are technically also syntactic sugar, but they still have some functionality.
+// Here is an example of a sugar-free lazy eval would be, however, this is not valid syntax because
+// the lazy eval keyword expects a constraint and a block.
+/*
+var my_function2:Fn(<public my_parameter:DebugFormat>,None)=lazy {
+    var parameters:<public my_parameter:DebugFormat>
+}
+*/
+
+// Templates are evaluated with the `eval` keyword which takes an object to be set as the
+// parameters. The `eval` keyword optionally expects square brackets with an object or field name,
+// and requires a path to a lazy eval.
+eval[{var my_parameter="Hello"}] my_function
+
+// Eval can be used without parameters like so:
+eval main
+
+// You can use the same privacy and mutability rules with variables. They are default private and
+// immutable just like object fields, since they are, technically, object fields.
+public mutable var name="John Doe"
