@@ -24,8 +24,8 @@ pub enum Error {
 
 
 fn main() {
-    let data=read_to_string("example.txt").unwrap();
-    //let data=read_to_string("hello_world.txt").unwrap();
+    let data=read_to_string("example.cppl").unwrap();
+    //let data=read_to_string("hello_world.cppl").unwrap();
     peg_start(&data);
     let parsed=grammar::parse_module(&data);
     peg_end();

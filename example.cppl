@@ -1,5 +1,4 @@
 /*
-TODO: Replace TBD items
 # Names
 Names can be of any length and contain any unicode characters except `.`, `(`, ` ` (space),
 `\n` (newline), `=`, `:`, `~`, `+`, `^`, `-`, `|`, `,`, `)`, `<`, `>`, `[`, `]`.
@@ -13,8 +12,8 @@ so the names can be anything and still not change the overall function of the co
 
 # Modules
 Modules are declared with the `module` keyword and the name of the file without the extension.
-For example: `module my_module` would go to the file `my_module.TBD` in the same directory or the
-file `mod.TBD` in the `my_module` directory.
+For example: `module my_module` would go to the file `my_module.cppl` in the same directory or the
+file `mod.cppl` in the `my_module` directory.
 
 # Imports
 Imports are specified with the `import` keyword and a path to the import. For example:

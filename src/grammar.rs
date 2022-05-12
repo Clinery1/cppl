@@ -6,7 +6,7 @@ use std::{
     mem::swap,
 };
 use crate::Error;
-pub use object_lang::*;
+pub use cppl_parser::*;
 
 
 #[derive(Debug)]
@@ -65,6 +65,7 @@ pub enum Statement {
         ret_val:ConstraintOrPath,
         block:Vec<Self>,
     },
+    // TODO: fix this crap
     String {
         data:String,
     },
@@ -672,7 +673,7 @@ impl ModuleObject {
 }
 
 
-peg::parser!(grammar object_lang() for str {
+peg::parser!(grammar cppl_parser() for str {
     pub rule parse_module()->Vec<Statement>=
         quiet!{comment()*}
         items:parse_statement_list()

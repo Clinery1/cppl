@@ -1,8 +1,3 @@
-module io
 // This creates a string, which is an object, and sets it as the parameters for `println` which is
 // defined like so: `function println(display:String) {/*implementation detail*/}`
 eval["Hello, World!"] println
-/*
-multi line comments!
-*/
-{}
