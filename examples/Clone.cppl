@@ -1,0 +1,10 @@
+constraint @=<
+    public clone:Fn(None,@),
+>
+
+
+public clone:=[]{
+    {
+        public clone:=clone.clone()
+    }
+}

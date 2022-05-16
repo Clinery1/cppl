@@ -1,10 +1,12 @@
 use std::{
     fs::read_to_string,
 };
-pub use grammar::*;
+use lexer::*;
 
 
-mod grammar;
+mod error;
+mod lexer;
+mod parser;
 
 
 #[derive(Debug)]
@@ -24,21 +26,25 @@ pub enum Error {
 
 
 fn main() {
-    let data=read_to_string("example.cppl").unwrap();
-    //let data=read_to_string("hello_world.cppl").unwrap();
-    peg_start(&data);
-    let parsed=grammar::parse_module(&data);
-    peg_end();
-    //println!("Data: `{}`",data);
-    println!("Parsed: {:#?}",parsed.unwrap());
-}
-fn peg_start(data:&str) {
-    if cfg!(feature="trace") {
-        println!("[PEG_INPUT_START]\n{}\n[PEG_TRACE_START]",data);
-    }
-}
-fn peg_end() {
-    if cfg!(feature="trace") {
-        println!("[PEG_TRACE_STOP]");
+    let filename="hello_world.cppl";
+    let data=read_to_string(filename).unwrap();
+    let tokens=TokenList::new(&data);
+    if let Ok(tokens)=tokens {
+        for token in tokens.0.iter() {
+            match token {
+                Token::LineComment(_)|
+                    Token::BlockComment(_)|
+                    Token::Newline(_)|
+                    Token::Space(_)|
+                    Token::Tab(_)=>{},
+                _=>{
+                    println!("{:?}",token);
+                },
+            }
+        }
+        //println!("Recreated source: `{}`",tokens.recreate_source());
+    } else {
+        let err=tokens.unwrap_err();
+        err.print_with_context(filename,&data);
     }
 }

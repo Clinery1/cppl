@@ -1,0 +1,2 @@
+my_value:Uint=5
+my_pointer:MutPtr(Uint)=*my_value  // create a mutable pointer

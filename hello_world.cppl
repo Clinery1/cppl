@@ -1,3 +1,18 @@
-// This creates a string, which is an object, and sets it as the parameters for `println` which is
-// defined like so: `function println(display:String) {/*implementation detail*/}`
-eval["Hello, World!"] println
+/*
+block
+comment
+on
+multiple
+lines
+*/
+/*block comment on one line*/
+// we create a handle to `stdout` using the `std::io::Stdout`
+mutable stdout:=std::io::Stdout()
+stdout.println("Hello, world!")
+
+1.4
+// Heart
+"\u{2764}"
+
+// tilde
+"\x7e"

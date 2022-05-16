@@ -1,0 +1,62 @@
+import std::alloc::Allocator
+
+
+// These are arguments that get passed to the constructor (this file).
+// They are accessible during the execution of this file and are deconstructed after the file is
+// done executing, if not stored somewhere.
+init @[obj:T,allocator:RefMut(Allocator)]
+constraint @[T:Destructable,ObjDeconsParam]=Deconstruct(<allocator:RefMut(Allocator),inner_deconstruct:ObjDeconsParam>)+Clone+<
+    public get:Fn(None,Ref(T)),
+    public get_mut:Fn(None,Option(RefMut(T))),
+    public ref_count:Fn(None,Uint),
+>
+
+
+// Blocks without parameters are eagerly evaluated, but blocks with parameters are evaluated when
+// called.
+ptr:Ptr(<refs:Uint,data:T>)=allocator.alloc({
+    public length=obj.byte_length()+8
+    public alignment=8
+})
+ptr.get_mut().refs=1
+ptr.get_mut().data=obj
+
+
+public ref_count:=[]{
+    return ptr.get().refs
+}
+public deconstruct:=[allocator:RefMut(Allocator),inner_deconstruct:ObjDeconsParam]{
+    ptr_ref:=ptr.get_mut()
+    ptr_ref.refs.sub_assign(1)
+    ptr_ref.refs.equal(0).then([]{
+        // we remove the object from existence by deallocating it, but only after calling
+        // `deconstruct` on it.
+        ptr_ref.data.deconstruct(inner_deconstruct)
+        allocator.dealloc(ptr_ref)
+    })
+}
+public clone:=[]{
+    ptr_ref:=ptr.get_mut()
+    ptr_ref.refs.add(1)
+    return {
+        public ptr:=ptr.clone()
+        public deconstruct:=deconstruct.clone()
+        public clone:=clone.clone()
+        public get:=get.clone()
+        public get_mut:=get.clone()
+    }
+}
+public get:=[]{
+    &ptr.get().data
+}
+public get_mut:=[]{
+    ptr_ref:=ptr.get_mut()
+    return ptr_ref.refs.equal(1).then_else(
+        []{
+            Option(*ptr_ref.data)
+        },
+        []{
+            Option(None)
+        }
+    )
+}

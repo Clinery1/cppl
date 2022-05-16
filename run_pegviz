@@ -1,6 +1,0 @@
-#!/bin/fish
-
-
-cargo run --features trace --release|
-#grep -v -e "`__`" -e "`_`" -e "comment`" -e "whitespace`"|
-pegviz --output pegviz.html
