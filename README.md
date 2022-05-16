@@ -15,7 +15,7 @@ If you have a better term for this, then please file an issue suggesting it.
 
 # Is this a memory-safe language?
 While this is not the goal, I believe it is possible to make the language at least mostly safe.
-As of now, I only have plans for an interpreter, but I have ideas for how to compile the language.
+As of now, I only have plans for an interpreter, but I have ideas for how to compile the language (see [compiled_idea.md](compiled_idea.md)).
 
 # What is this thing called?
 CPPL.
