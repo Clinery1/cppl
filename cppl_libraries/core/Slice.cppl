@@ -1,0 +1,7 @@
+constraint @[T:Any]=<
+    public index:Fn(<index:Uint>,Ref(T)),
+    public index_mut:Fn(<index:Uint>,RefMut(T)),
+>
+
+
+// compiler internal

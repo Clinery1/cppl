@@ -1,9 +1,11 @@
+import core::function::RawFn
+
+
 constraint @[params:Any,ret_val:Any]=<
     public mutable parameters:~params,
     public return_value:~ret_val,
+    instructions:Ref(RawFn),
 >
 
 
-public mutable parameters
-public return_value
 // Compiler-internal object

@@ -4,14 +4,18 @@ I was inspired by
 [this](https://softwareengineering.stackexchange.com/questions/95126/how-does-a-static-type-system-affect-the-design-of-a-prototype-based-language)
 Stack Exchange question, and the [Structural type system](https://en.wikipedia.org/wiki/Structural_type_system) Wikipedia page.
 
-# What does "statically-constrained-object" mean?
+# What does "statically-constrained object-oriented" mean?
 It means that the objects can contain any fields, but the possible objects are constrained at "compile-time."
-See the explanation in `example.txt`.
+Lets use JavaScript for an example.
+In JS, all objects are mutable; fields can be added and removed at any time.
+The difference is that JS is a dynamically-typed language, so you have no idea if the fields you want to access actually exist.
+With CPPL, the fields that you specify are guaranteed to exist at runtime within "safe" CPPL.
+
 If you have a better term for this, then please file an issue suggesting it.
 
-# What is all this ugly code?
-Please do not comment on that.
-If I ever want to realize this language into something actually useful, then I will clean up and likely rewrite most of the code.
+# Is this a memory-safe language?
+While this is not the goal, I believe it is possible to make the language at least mostly safe.
+As of now, I only have plans for an interpreter, but I have ideas for how to compile the language.
 
 # What is this thing called?
 CPPL.

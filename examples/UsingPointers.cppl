@@ -1,2 +1,5 @@
+import core::ptr::Ptr
+
+
 my_value:Uint=5
-my_pointer:MutPtr(Uint)=*my_value  // create a mutable pointer
+my_pointer:Ptr(Uint)=Ptr(&my_value) // create a pointer

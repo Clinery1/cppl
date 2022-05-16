@@ -1,0 +1,15 @@
+constraint @=<
+    public add:Fn(<other:@>,@),
+    public add_assign:Fn(<other:@>,),
+    public sub:Fn(<other:@>,@),
+    public sub_assign:Fn(<other:@>,),
+    public mul:Fn(<other:@>,@),
+    public mul_assign:Fn(<other:@>,),
+    public div:Fn(<other:@>,@),
+    public div_assign:Fn(<other:@>,),
+    public mod:Fn(<other:@>,@),
+    public mod_assign:Fn(<other:@>,),
+>
+
+
+// compiler internal
