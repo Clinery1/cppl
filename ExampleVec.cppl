@@ -1,0 +1,22 @@
+type Vec<T>={
+    mem:*mut [T]
+    layout:AllocLayout={
+        pub size:UInt
+        pub alignment:UInt
+    }
+    capacity:UInt
+    len:UInt
+    pub new:=fn()->Self {
+        {mem:=Option::None();len:=0;layout:={pub size:=0;pub alignment:=8}}
+    }
+    pub push:=fn(&mut self,allocator:&mut Allocator,item:T) {
+        if self.mem==0 {
+            self.layout.size=16
+            self.mem=allocator.alloc(&self.layout)
+        }
+        if (self.capacity-self.len)==0 {
+            self.layout.size+=16
+            new_ptr:=allocator.realloc(&self.layout)
+        }
+    }
+}

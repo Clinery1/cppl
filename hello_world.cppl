@@ -6,9 +6,11 @@ multiple
 lines
 */
 /*block comment on one line*/
-// we create a handle to `stdout` using the `std::io::Stdout`
-mutable stdout:=std::io::Stdout()
+// we create a handle to `stdout` using the `std#io#Stdout`
+stdout:=std#io#Stdout()
 stdout.println("Hello, world!")
+
+delete
 
 1.4
 // Heart

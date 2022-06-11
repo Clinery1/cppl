@@ -4,4 +4,10 @@ version="0.1.0"
 edition="2021"
 
 
+[features]
+recreate_source=[]
+
+
 [dependencies]
+logos="0.12.1"
+lalrpop="0.19.8"

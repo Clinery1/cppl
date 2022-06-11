@@ -1,0 +1,49 @@
+import std::{
+    env::Arguments,
+    io::{println,print},
+}
+
+
+/// A constraint for a person type.
+type Person={
+    pub name:String
+    pub age:UInt
+    ...
+}
+/// Satisfies the `Person` constraint, so it can be used as a `Person`. Is also an exact constraint.
+type Android={
+    /// Mutable items are, by default, mutable everywhere.
+    pub mut name:String
+    pub mut age:UInt
+    /// Mutable only within the scope of this object. Outside observers see immutable data.
+    pub mut(local) version:String
+    pub new:=fn[name:String,age:UInt,version:String]:Self {
+        {name,age,version}
+    }
+    pub set_version:=fn[this,new_version:String]:String {
+        old_version:=this.version
+        this.version=new_version
+        return old_version
+    }
+}
+
+
+interface PersonExt={
+    fn say_name[this]
+}
+impl PersonExt for Person {
+    fn say_name[this] {
+        print("Hello! My name is ")
+        print(this.name)
+    }
+}
+
+
+for arg in Arguments() {
+    print("Argument: ")
+    println(arg)
+}
+
+positive_number:=1234_5678_90
+negative_number:=-93_1_1_2
+float:=1.524
