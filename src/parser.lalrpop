@@ -18,7 +18,10 @@ use crate::{
         AnonFunctionSignature,
         AnonFunction,
     },
-    lexer::Token,
+    lexer::{
+        Token,
+        Location,
+    },
     Error,
     Keyword,
 };
@@ -28,7 +31,7 @@ grammar<'input>;
 
 
 extern {
-    type Location=usize;
+    type Location=Location;
     type Error=crate::Error<'input,&'static str>;
     enum Token<'input> {
         "fn"=>Token::Keyword(Keyword::Function),
@@ -90,8 +93,8 @@ extern {
 
 
 pub All:Vec<Statement<'input>>={
-    <s:Statement*>=>s,
-    <s:Statement*> "Newline"=>s,
+    <BlockInner*>,
+    <BlockInner*> SkipNewline,
 };
 
 
@@ -177,19 +180,19 @@ TypeInner:Type<'input>={
 Block:Block<'input>={
     "{" "}"=>Block::new(),
     "{" SkipNewline "}"=>Block::new(),
-    "{" <BlockInner+> SkipNewline "}",
     "{" <BlockInner+> "}",
+    "{" <BlockInner+> SkipNewline "}",
 };
 BlockInner:Statement<'input>={
     SkipNewline <Statement>,
     <Statement>,
 };
 Statement:Statement<'input>={
-    <f:Function> StatementEnd=>Statement::FunctionDef(f),
+    <f:Function>=>Statement::FunctionDef(f),
     <sig:FunctionSignature> StatementEnd=>Statement::FunctionSig(sig),
-    <i:Interface> StatementEnd=>Statement::InterfaceDef(i),
+    <i:Interface>=>Statement::InterfaceDef(i),
     <expr:Expr> StatementEnd=>Statement::Expr(expr),
-    "DocComment"=>Statement::Doc(<>),
+    <"DocComment">=>Statement::Doc(<>),
 };
 Expr:Expr<'input>={
     <MethodCall>,
@@ -273,6 +276,7 @@ InterfaceBlockInner:InterfaceItem<'input>={
 InterfaceItem:InterfaceItem<'input>={
     <f:Function>=>InterfaceItem::FunctionDef(f),
     <sig:FunctionSignature>=>InterfaceItem::FunctionSig(sig),
+    <"DocComment">=>InterfaceItem::Doc(<>),
 };
 
 

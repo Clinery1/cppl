@@ -101,14 +101,15 @@ pub enum Token<'input> {
     #[regex("\\.[0-9]+",slice)]
     #[regex("[0-9]+\\.",slice)]
     Float(&'input str),
-    #[regex("///.*\n",slice)]
-    #[regex("/\\*\\*.*\\*\\*/\n",slice)]
+    #[regex("///[^\n]*\n",line_doc_comment_fix)]
+    #[regex("/\\*\\*[^**/]*\\*\\*/",block_doc_comment_fix)]
     DocComment(&'input str),
     #[regex("[ \t]+", logos::skip)]
     //#[regex("[ \t]+")]
     //Whitespace,
-    #[regex("//.*\n",logos::skip)]
-    #[regex("/\\*.*\\*/\n",logos::skip)]
+    #[regex("//[^\n]*\n",logos::skip)]
+    #[regex("/\\*[^*/]*\\*/",logos::skip)]
+    Comment,
     #[error]
     Error,
 }
@@ -134,6 +135,12 @@ pub enum Keyword {
 }
 
 
+#[derive(Copy,Clone,Debug,PartialEq,Default)]
+pub struct Location {
+    pub index:usize,
+    pub line:usize,
+    pub column:usize,
+}
 pub struct TokenIterator<'input> {
     input:&'input str,
     filename:&'input str,
@@ -153,7 +160,7 @@ impl<'input> TokenIterator<'input> {
     }
 }
 impl<'input> Iterator for TokenIterator<'input> {
-    type Item=Result<(usize,Token<'input>,usize),Error<'input,&'static str>>;
+    type Item=Result<(Location,Token<'input>,Location),Error<'input,&'static str>>;
     fn next(&mut self)->Option<Self::Item> {
         let item=self.lexer.next()?;
         let span=self.lexer.span();
@@ -168,6 +175,11 @@ impl<'input> Iterator for TokenIterator<'input> {
                 line_data:&self.input[self.line_start..span.end],
             })),
             t=>{
+                let start=Location {
+                    index:span.start,
+                    line:self.line,
+                    column:span.start-self.line_start,
+                };
                 match &t {
                     Token::Newline=>{
                         self.line+=span.end-span.start;
@@ -175,13 +187,27 @@ impl<'input> Iterator for TokenIterator<'input> {
                     },
                     _=>{},
                 }
-                Some(Ok((span.start,t,span.end)))
+                Some(Ok((
+                    start,
+                    t,
+                    Location {
+                        index:span.end,
+                        line:self.line,
+                        column:span.end-self.line_start,
+                    }
+                )))
             },
         }
     }
 }
 
 
+fn line_doc_comment_fix<'input>(lex:&mut Lexer<'input,Token<'input>>)->&'input str {
+    return lex.slice().trim_end_matches('\n').trim_start_matches("///").trim();
+}
+fn block_doc_comment_fix<'input>(lex:&mut Lexer<'input,Token<'input>>)->&'input str {
+    return lex.slice().trim_end_matches("**/").trim_start_matches("/**").trim();
+}
 fn label_fix<'input>(lex:&mut Lexer<'input,Token<'input>>)->&'input str {
     return lex.slice().trim_matches('^');
 }

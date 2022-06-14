@@ -88,6 +88,7 @@ pub enum Data<'input> {
 pub enum InterfaceItem<'input> {
     FunctionSig(FunctionSignature<'input>),
     FunctionDef(Function<'input>),
+    Doc(&'input str),
 }
 #[derive(Debug)]
 pub enum MethodType {
