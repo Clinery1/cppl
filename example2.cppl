@@ -1,0 +1,11 @@
+fn main[args:Array(String)] {
+    args.into_iter().for_each(fn[arg:String] {
+        println(arg)
+    });
+    println("Hello, World!")
+}
+
+
+interface IntoString {
+    fn into_string[this]:String
+}

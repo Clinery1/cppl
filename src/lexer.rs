@@ -2,15 +2,19 @@ use logos::{
     Logos,
     Lexer,
 };
+use crate::{
+    Error,
+    ErrorLevel,
+};
 
 
-#[derive(Logos,Debug,PartialEq)]
-pub enum Token<'a> {
+#[derive(Logos,Debug,PartialEq,Clone)]
+pub enum Token<'input> {
     #[token("fn", |_|Keyword::Function)]
     #[token("type", |_|Keyword::Type)]
     #[token("interface", |_|Keyword::Interface)]
-    #[token("pub", |_|Keyword::Pub)]
-    #[token("mut", |_|Keyword::Mut)]
+    #[regex("pub", |_|Keyword::Pub)]
+    #[regex("mut", |_|Keyword::Mut)]
     #[token("impl", |_|Keyword::Impl)]
     #[token("import", |_|Keyword::Import)]
     #[token("for", |_|Keyword::For)]
@@ -20,13 +24,16 @@ pub enum Token<'a> {
     #[token("return", |_|Keyword::Return)]
     #[token("continue", |_|Keyword::Continue)]
     #[token("match", |_|Keyword::Match)]
+    #[token("enum", |_|Keyword::Enum)]
+    #[token("module", |_|Keyword::Module)]
+    #[token("this", |_|Keyword::This)]
     Keyword(Keyword),
-    #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*", |lex|lex.slice())]
-    Word(&'a str),
+    #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*",slice)]
+    Word(&'input str),
     #[token(",")]
     Comma,
-    #[regex("'",parse_char)]
-    Char(char),
+    #[regex("'",slice)]
+    Char(&'input str),
     #[token(":")]
     Colon,
     #[token("::")]
@@ -57,31 +64,55 @@ pub enum Token<'a> {
     Less,
     #[token("==")]
     Equal,
+    #[token("!=")]
+    NotEqual,
     #[token("=")]
     Assign,
+    #[token("-")]
+    Dash,
     #[token(".")]
     Dot,
     #[token("...")]
     Etc,
+    #[token("|")]
+    Union,
+    #[token("+")]
+    Add,
+    #[token("*")]
+    Mul,
+    #[token("/")]
+    Div,
+    #[token("%")]
+    Mod,
+    #[token("&")]
+    And,
+    #[token("!")]
+    Not,
+    #[regex("\\^[a-zA-Z_][a-zA-Z0-9_]*",label_fix)]
+    Label(&'input str),
     #[regex("r#*\"",parse_raw_string)]
     #[regex("\"[^\"]*\"",fix_string)]
-    String(&'a str),
+    String(&'input str),
     #[regex("\n+")]
     Newline,
-    #[regex("-?[0-9][0-9_]*", |lex|lex.slice())]
-    Number(&'a str),
-    #[regex("-?[0-9]+\\.[0-9]+", |lex|lex.slice())]
-    #[regex("-?\\.[0-9]+", |lex|lex.slice())]
-    #[regex("-?[0-9]+\\.", |lex|lex.slice())]
-    Float(&'a str),
-    #[regex("[ \t]+")]
-    Whitespace,
+    #[regex("[0-9][0-9_]*",slice)]
+    Number(&'input str),
+    #[regex("[0-9]+\\.[0-9]+",slice)]
+    #[regex("\\.[0-9]+",slice)]
+    #[regex("[0-9]+\\.",slice)]
+    Float(&'input str),
+    #[regex("///.*\n",slice)]
+    #[regex("/\\*\\*.*\\*\\*/\n",slice)]
+    DocComment(&'input str),
+    #[regex("[ \t]+", logos::skip)]
+    //#[regex("[ \t]+")]
+    //Whitespace,
     #[regex("//.*\n",logos::skip)]
     #[regex("/\\*.*\\*/\n",logos::skip)]
     #[error]
     Error,
 }
-#[derive(Debug,PartialEq)]
+#[derive(Debug,PartialEq,Copy,Clone)]
 pub enum Keyword {
     Function,
     Type,
@@ -97,10 +128,67 @@ pub enum Keyword {
     Return,
     Continue,
     Match,
+    Enum,
+    Module,
+    This,
 }
 
 
-fn parse_raw_string<'a>(lexer:&mut Lexer<'a,Token<'a>>)->Option<&'a str> {
+pub struct TokenIterator<'input> {
+    input:&'input str,
+    filename:&'input str,
+    line:usize,
+    line_start:usize,
+    lexer:Lexer<'input,Token<'input>>,
+}
+impl<'input> TokenIterator<'input> {
+    pub fn new(input:&'input str,filename:&'input str)->Self {
+        TokenIterator {
+            input,
+            filename,
+            line:0,
+            line_start:0,
+            lexer:Token::lexer(input),
+        }
+    }
+}
+impl<'input> Iterator for TokenIterator<'input> {
+    type Item=Result<(usize,Token<'input>,usize),Error<'input,&'static str>>;
+    fn next(&mut self)->Option<Self::Item> {
+        let item=self.lexer.next()?;
+        let span=self.lexer.span();
+        println!("Token: {:?}",item);
+        match item {
+            Token::Error=>Some(Err(Error{
+                reason:"Invalid token",
+                level:ErrorLevel::LexError,
+                filename:self.filename,
+                line:self.line,
+                column:span.start-self.line_start,
+                line_data:&self.input[self.line_start..span.end],
+            })),
+            t=>{
+                match &t {
+                    Token::Newline=>{
+                        self.line+=span.end-span.start;
+                        self.line_start=span.end;
+                    },
+                    _=>{},
+                }
+                Some(Ok((span.start,t,span.end)))
+            },
+        }
+    }
+}
+
+
+fn label_fix<'input>(lex:&mut Lexer<'input,Token<'input>>)->&'input str {
+    return lex.slice().trim_matches('^');
+}
+fn slice<'input>(lex:&mut Lexer<'input,Token<'input>>)->&'input str {
+    return lex.slice();
+}
+fn parse_raw_string<'input>(lexer:&mut Lexer<'input,Token<'input>>)->Option<&'input str> {
     const CHAR_SLICE:&[char]=&['r','"'];
     let closing=lexer.slice().trim_matches(CHAR_SLICE);
     lexer
@@ -114,40 +202,7 @@ fn parse_raw_string<'a>(lexer:&mut Lexer<'a,Token<'a>>)->Option<&'a str> {
             &ret[start..start+i-1]
         })
 }
-fn fix_string<'a>(lexer:&mut Lexer<'a,Token<'a>>)->&'a str {
+fn fix_string<'input>(lexer:&mut Lexer<'input,Token<'input>>)->&'input str {
     let s=lexer.slice();
     &s[1..s.len()-1]
-}
-fn parse_char<'a>(lexer:&mut Lexer<'a,Token<'a>>)->Option<char> {
-    let inner=lexer
-        .remainder()
-        .find('\'')
-        .map(|i|{
-            lexer.bump(i);
-            let ret=lexer.slice();
-            lexer.bump(1);
-            &ret[1..i+1]
-        })?.chars().collect::<Vec<_>>();
-    match inner[0] {
-        '\\'=>{
-            match inner[1] {
-                'n'=>return Some('\n'),
-                't'=>return Some('\t'),
-                'r'=>return Some('\r'),
-                '0'=>return Some('\0'),
-                'x'=>{
-                    if inner.len()==4 {
-                        if inner[2].is_ascii_hexdigit()&&inner[3].is_ascii_hexdigit() {
-                            let s=format!("{}{}",inner[2],inner[3]);
-                            return Some(u8::from_str_radix(&s,16).unwrap() as char);
-                        }
-                    }
-                    return None;
-                },
-                '\\'=>return Some('\\'),
-                _=>return None,
-            }
-        },
-        c=>return Some(c),
-    }
 }

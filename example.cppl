@@ -28,7 +28,7 @@ type Android={
 }
 
 
-interface PersonExt={
+interface PersonExt {
     fn say_name[this]
 }
 impl PersonExt for Person {
@@ -44,6 +44,7 @@ for arg in Arguments() {
     println(arg)
 }
 
+mut a_string:String="Hello, world"
 positive_number:=1234_5678_90
 negative_number:=-93_1_1_2
 float:=1.524

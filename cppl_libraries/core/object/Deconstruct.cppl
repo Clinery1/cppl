@@ -1,7 +1,0 @@
-constraint @[Params:Any]=<
-    public deconstruct:Fn(Params,None),
->
-
-
-// Default is to do nothing
-public deconstruct:=[]{}

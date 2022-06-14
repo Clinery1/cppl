@@ -1,2 +1,4 @@
 /target
-/pegviz.html
+/spec.md
+**/*.old
+**/*.bak

@@ -1,4 +1,0 @@
-constraint @=<
-    public then:Fn(<to_execute:Fn(None,Any)>,Any),
-    public else:Fn(<to_execute:Fn(None,Any)>,Any),
->

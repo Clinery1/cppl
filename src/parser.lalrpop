@@ -1,0 +1,344 @@
+use crate::{
+    ast::{
+        Function,
+        Type,
+        Block,
+        Statement,
+        Expr,
+        Data,
+        Visibility,
+        TypeObjectField,
+        Interface,
+        FunctionSignature,
+        InterfaceBlock,
+        InterfaceItem,
+        Parameters,
+        Parameter,
+        MethodType,
+        AnonFunctionSignature,
+        AnonFunction,
+    },
+    lexer::Token,
+    Error,
+    Keyword,
+};
+
+
+grammar<'input>;
+
+
+extern {
+    type Location=usize;
+    type Error=crate::Error<'input,&'static str>;
+    enum Token<'input> {
+        "fn"=>Token::Keyword(Keyword::Function),
+        "type"=>Token::Keyword(Keyword::Type),
+        "interface"=>Token::Keyword(Keyword::Interface),
+        "pub"=>Token::Keyword(Keyword::Pub),
+        "mut"=>Token::Keyword(Keyword::Mut),
+        "impl"=>Token::Keyword(Keyword::Impl),
+        "import"=>Token::Keyword(Keyword::Import),
+        "for"=>Token::Keyword(Keyword::For),
+        "while"=>Token::Keyword(Keyword::While),
+        "loop"=>Token::Keyword(Keyword::Loop),
+        "break"=>Token::Keyword(Keyword::Break),
+        "return"=>Token::Keyword(Keyword::Return),
+        "continue"=>Token::Keyword(Keyword::Continue),
+        "match"=>Token::Keyword(Keyword::Match),
+        "enum"=>Token::Keyword(Keyword::Enum),
+        "module"=>Token::Keyword(Keyword::Module),
+        "this"=>Token::Keyword(Keyword::This),
+        "string"=>Token::String(<&'input str>),
+        "Word"=>Token::Word(<&'input str>),
+        ","=>Token::Comma,
+        "char"=>Token::Char(<&'input str>),
+        ":"=>Token::Colon,
+        "::"=>Token::Associated,
+        ";"=>Token::SemiColon,
+        "("=>Token::ParenthesisStart,
+        ")"=>Token::ParenthesisEnd,
+        "["=>Token::BracketStart,
+        "]"=>Token::BracketEnd,
+        "{"=>Token::BraceStart,
+        "}"=>Token::BraceEnd,
+        ":="=>Token::Decl,
+        ">="=>Token::GreaterEqual,
+        ">"=>Token::Greater,
+        "<="=>Token::LessEqual,
+        "<"=>Token::Less,
+        "=="=>Token::Equal,
+        "!="=>Token::NotEqual,
+        "="=>Token::Assign,
+        "-"=>Token::Dash,
+        "."=>Token::Dot,
+        "..."=>Token::Etc,
+        "|"=>Token::Union,
+        "+"=>Token::Add,
+        "*"=>Token::Mul,
+        "/"=>Token::Div,
+        "%"=>Token::Mod,
+        "&"=>Token::And,
+        "!"=>Token::Not,
+        "Label"=>Token::Label(<&'input str>),
+        "String"=>Token::String(<&'input str>),
+        "Newline"=>Token::Newline,
+        "Number"=>Token::Number(<&'input str>),
+        "Float"=>Token::Float(<&'input str>),
+        "DocComment"=>Token::DocComment(<&'input str>),
+    }
+}
+
+
+pub All:Vec<Statement<'input>>={
+    <s:Statement*>=>s,
+    <s:Statement*> "Newline"=>s,
+};
+
+
+AnonFunctionSignature:AnonFunctionSignature<'input>={
+    "fn" <params:Parameters> <ret_type:(":" <Type>)?>=>AnonFunctionSignature {
+        params,
+        ret_type,
+    },
+};
+AnonFunction:AnonFunction<'input>={
+    <sig:AnonFunctionSignature> <block:Block>=>sig.to_function(block),
+};
+FunctionSignature:FunctionSignature<'input>={
+    <public:Public?> "fn" <name:Word> <params:Parameters> <ret_type:(":" <Type>)?>=>FunctionSignature {
+        public:public.unwrap_or_default(),
+        name,
+        params,
+        ret_type,
+    },
+};
+Function:Function<'input>={
+    <sig:FunctionSignature> <block:Block>=>sig.to_function(block),
+};
+Parameters:Parameters<'input>={
+    "[" "]"=>Parameters::default(),
+    "[" "this" <normal:("," <Parameter>)*> <var_arg:("," "..." <Parameter>)?> "]"=>Parameters {
+        method_type:MethodType::This,
+        normal,
+        var_arg,
+    },
+    "[" "mut" "this" <normal:("," <Parameter>)*> <var_arg:("," "..." <Parameter>)?> "]"=>Parameters {
+        method_type:MethodType::ThisMut,
+        normal,
+        var_arg,
+    },
+    "[" <normal:(<Parameter> ",")*> <last:Parameter> <var_arg:("," "..." <Parameter>)?> "]"=>{
+        let mut normal=normal;
+        normal.push(last);
+        return Parameters {
+            method_type:MethodType::None,
+            normal,
+            var_arg,
+        };
+    },
+};
+Parameter:Parameter<'input>={
+    "mut" <name:Word> ":" <ty:Type>=>Parameter{mutable:true,name,ty},
+    <name:Word> ":" <ty:Type>=>Parameter{mutable:false,name,ty},
+};
+Type:Type<'input>=<CompositeType>;
+CompositeType:Type<'input>={
+    <tys:(<TypeInner> "+")+> <last:TypeInner>=>{
+        let mut tys=tys;
+        tys.push(last);
+        return Type::Composite(tys);
+    },
+    <UnionType>,
+};
+UnionType:Type<'input>={
+    <tys:(<TypeInner> "|")+> <last:TypeInner>=>{
+        let mut tys=tys;
+        tys.push(last);
+        return Type::Union(tys);
+    },
+    <FunctionType>,
+};
+FunctionType:Type<'input>={
+    <sig:AnonFunctionSignature>=>Type::FunctionSig(Box::new(sig)),
+    <TypeInner>,
+};
+TypeInner:Type<'input>={
+    <name:Word>=>Type::Named{name,generics:Vec::new()},
+    <name:Word> "(" <first:CompositeType> ")"=>{
+        return Type::Named{name,generics:vec![first]};
+    },
+    <name:Word> "(" <tys:(<CompositeType> ",")+> <last:CompositeType> ")"=>{
+        let mut generics=tys;
+        generics.push(last);
+        return Type::Named{name,generics};
+    },
+    "{" <items:TypeObjectField+> "}"=>Type::Object(items),
+};
+Block:Block<'input>={
+    "{" "}"=>Block::new(),
+    "{" SkipNewline "}"=>Block::new(),
+    "{" <BlockInner+> SkipNewline "}",
+    "{" <BlockInner+> "}",
+};
+BlockInner:Statement<'input>={
+    SkipNewline <Statement>,
+    <Statement>,
+};
+Statement:Statement<'input>={
+    <f:Function> StatementEnd=>Statement::FunctionDef(f),
+    <sig:FunctionSignature> StatementEnd=>Statement::FunctionSig(sig),
+    <i:Interface> StatementEnd=>Statement::InterfaceDef(i),
+    <expr:Expr> StatementEnd=>Statement::Expr(expr),
+    "DocComment"=>Statement::Doc(<>),
+};
+Expr:Expr<'input>={
+    <MethodCall>,
+    <FunctionCall>,
+    <AssociatedPath>,
+    <FieldPath>,
+    <Var>,
+    <block:Block>=>Expr::Block(block),
+    <function:AnonFunction>=>Expr::AnonFunction(function),
+    <l:Expr> "&" <r:Comparison>=>Expr::And(Box::new([l,r])),
+    <l:Expr> "|" <r:Comparison>=>Expr::Or(Box::new([l,r])),
+    "!" <l:Comparison>=>Expr::Not(Box::new(l)),
+    <Comparison>,
+};
+Comparison:Expr<'input>={
+    <l:Comparison> "==" <r:Operand>=>Expr::Equal(Box::new([l,r])),
+    <l:Comparison> "!=" <r:Operand>=>Expr::NotEqual(Box::new([l,r])),
+    <l:Comparison> ">=" <r:Operand>=>Expr::GreaterEqual(Box::new([l,r])),
+    <l:Comparison> "<=" <r:Operand>=>Expr::LessEqual(Box::new([l,r])),
+    <l:Comparison> ">" <r:Operand>=>Expr::Greater(Box::new([l,r])),
+    <l:Comparison> "<" <r:Operand>=>Expr::Less(Box::new([l,r])),
+    <Operand>,
+};
+Operand:Expr<'input>={
+    <l:Operand> "+" <r:Factor>=>Expr::Add(Box::new([l,r])),
+    <l:Operand> "-" <r:Factor>=>Expr::Sub(Box::new([l,r])),
+    <Factor>,
+};
+Factor:Expr<'input>={
+    <l:Factor> "*" <r:Term>=>Expr::Mul(Box::new([l,r])),
+    <l:Factor> "/" <r:Term>=>Expr::Div(Box::new([l,r])),
+    <l:Factor> "%" <r:Term>=>Expr::Mod(Box::new([l,r])),
+    <Term>,
+};
+Term:Expr<'input>={
+    <s:String>=>Expr::Data(s),
+    <num:Number>=>Expr::Data(num),
+    "-" <num:Number>=>Expr::Negate(Box::new(Expr::Data(num))),
+    <num:Float>=>Expr::Data(num),
+    "-" <num:Float>=>Expr::Negate(Box::new(Expr::Data(num))),
+    "(" <Expr> ")",
+};
+Public:Visibility={
+    "pub" "(" <w:Word> ")"=>{
+        match w {
+            "lib"=>Visibility::Library,
+            "local"=>Visibility::Local,
+            _=>Visibility::Full,
+        }
+    },
+    "pub"=>Visibility::Full,
+};
+Mutable:Visibility={
+    "mut" "(" <w:Word> ")"=>{
+        match w {
+            "lib"=>Visibility::Library,
+            "local"=>Visibility::Local,
+            _=>Visibility::Full,
+        }
+    },
+    "mut"=>Visibility::Full,
+};
+Interface:Interface<'input>={
+    <public:Public?> "interface" <name:Word> <requirement:(":" <Type>)?> <block:InterfaceBlock>=>Interface {
+        public:public.unwrap_or_default(),
+        name,
+        requirement,
+        block,
+    },
+};
+InterfaceBlock:InterfaceBlock<'input>={
+    "{" "}"=>InterfaceBlock::new(),
+    "{" SkipNewline "}"=>InterfaceBlock::new(),
+    "{" <InterfaceBlockInner+> SkipNewline "}",
+    "{" <InterfaceBlockInner+> "}",
+};
+InterfaceBlockInner:InterfaceItem<'input>={
+    SkipNewline <InterfaceItem>,
+    <InterfaceItem>,
+};
+InterfaceItem:InterfaceItem<'input>={
+    <f:Function>=>InterfaceItem::FunctionDef(f),
+    <sig:FunctionSignature>=>InterfaceItem::FunctionSig(sig),
+};
+
+
+TypeObjectField:TypeObjectField<'input>={
+    <name:Word> ":" <ty:Type>=>TypeObjectField{public:Visibility::None,mutable:Visibility::None,name,ty},
+    <mutable:Mutable> <name:Word> ":" <ty:Type>=>TypeObjectField{public:Visibility::None,mutable,name,ty},
+    <public:Public> <name:Word> ":" <ty:Type>=>TypeObjectField{public,mutable:Visibility::None,name,ty},
+    <public:Public> <mutable:Mutable> <name:Word> ":" <ty:Type>=>TypeObjectField{public,mutable,name,ty},
+};
+String:Data<'input>="String"=>Data::String(<>.into());
+Number:Data<'input>="Number"=>Data::GenericNumber(<>);
+Float:Data<'input>="Float"=>Data::GenericFloat(<>);
+Var:Expr<'input>=<name:Word>=>Expr::Var(name);
+AssociatedPath:Expr<'input>=<first:Word> <path:AdditionalAssociated+>=>{
+    let mut path=path;
+    path.insert(0,first);
+    return Expr::AssociatedPath(path);
+};
+AdditionalAssociated:&'input str="::" <Word>;
+FieldPath:Expr<'input>=<from:Expr> "." <name:Word>=>Expr::FieldAccess{from:Box::new(from),name};
+MethodCall:Expr<'input>={
+    <from:Expr> "." <name:Word> "(" ")"=>Expr::MethodCall{
+        from:Box::new(from),
+        name,
+        args:Vec::new()
+    },
+    <from:Expr> "." <name:Word> "(" <arg:Expr> ")"=>{
+        return Expr::MethodCall {
+            from:Box::new(from),
+            name,
+            args:vec![arg],
+        };
+    },
+    <from:Expr> "." <name:Word> "(" <arg0:Expr> <args:AdditionalArg+> ")"=>{
+        let mut args=args;
+        args.insert(0,arg0);
+        return Expr::MethodCall {
+            from:Box::new(from),
+            name,
+            args,
+        };
+    },
+};
+FunctionCall:Expr<'input>={
+    <name:Word> "(" ")"=>Expr::FunctionCall{name,args:Vec::new()},
+    <name:Word> "(" <arg:Expr> ")"=>{
+        return Expr::FunctionCall {
+            name,
+            args:vec![arg],
+        };
+    },
+    <name:Word> "(" <arg0:Expr> <args:AdditionalArg+> ")"=>{
+        let mut args=args;
+        args.insert(0,arg0);
+        return Expr::FunctionCall {
+            name,
+            args,
+        };
+    },
+};
+AdditionalArg:Expr<'input>="," <Expr>;
+SkipNewline:()="Newline"=>();
+StatementEnd:()={
+    "Newline"=>(),
+    ";"+=>(),
+};
+Word:&'input str={
+    "Word"=><>,
+};
