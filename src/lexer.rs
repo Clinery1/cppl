@@ -2,6 +2,11 @@ use logos::{
     Logos,
     Lexer,
 };
+use std::fmt::{
+    Display,
+    Formatter,
+    Result as FmtResult,
+};
 use crate::{
     Error,
     ErrorLevel,
@@ -32,8 +37,6 @@ pub enum Token<'input> {
     Word(&'input str),
     #[token(",")]
     Comma,
-    #[regex("'",slice)]
-    Char(&'input str),
     #[token(":")]
     Colon,
     #[token("::")]
@@ -88,8 +91,10 @@ pub enum Token<'input> {
     And,
     #[token("!")]
     Not,
-    #[regex("\\^[a-zA-Z_][a-zA-Z0-9_]*",label_fix)]
-    Label(&'input str),
+    #[token("'")]
+    SingleQuote,
+    #[token("\\")]
+    Backslash,
     #[regex("r#*\"",parse_raw_string)]
     #[regex("\"[^\"]*\"",fix_string)]
     String(&'input str),
@@ -101,17 +106,63 @@ pub enum Token<'input> {
     #[regex("\\.[0-9]+",slice)]
     #[regex("[0-9]+\\.",slice)]
     Float(&'input str),
-    #[regex("///[^\n]*\n",line_doc_comment_fix)]
+    #[regex("///[^\n]*",line_doc_comment_fix)]
     #[regex("/\\*\\*[^**/]*\\*\\*/",block_doc_comment_fix)]
     DocComment(&'input str),
     #[regex("[ \t]+", logos::skip)]
     //#[regex("[ \t]+")]
     //Whitespace,
-    #[regex("//[^\n]*\n",logos::skip)]
+    #[regex("//[^\n]*",logos::skip)]
     #[regex("/\\*[^*/]*\\*/",logos::skip)]
     Comment,
     #[error]
     Error,
+}
+impl<'source> Display for Token<'source> {
+    fn fmt(&self,f:&mut Formatter)->FmtResult {
+        use Token::*;
+        match self {
+            Keyword(kw)=>write!(f,"keyword: `{}`",kw),
+            Word(s)=>write!(f,"word: `{}`",s),
+            Comma=>write!(f,"token: `,`"),
+            Colon=>write!(f,"token: `:`"),
+            Associated=>write!(f,"token: `::`"),
+            SemiColon=>write!(f,"token: `;`"),
+            ParenthesisStart=>write!(f,"token: `(`"),
+            ParenthesisEnd=>write!(f,"token: `)`"),
+            BracketStart=>write!(f,"token: `]`"),
+            BracketEnd=>write!(f,"token: `]`"),
+            BraceStart=>write!(f,"token: `{{`"),
+            BraceEnd=>write!(f,"token: `}}`"),
+            Decl=>write!(f,"token: `:=`"),
+            GreaterEqual=>write!(f,"token: `>=`"),
+            Greater=>write!(f,"token: `>`"),
+            LessEqual=>write!(f,"token: `<=`"),
+            Less=>write!(f,"token: `<`"),
+            Equal=>write!(f,"token: `==`"),
+            NotEqual=>write!(f,"token: `!="),
+            Assign=>write!(f,"token: `=`"),
+            Dash=>write!(f,"token: `-`"),
+            Dot=>write!(f,"token: `.`"),
+            Etc=>write!(f,"token: `...`"),
+            Union=>write!(f,"token: `|`"),
+            Add=>write!(f,"token: `+`"),
+            Mul=>write!(f,"token: `*`"),
+            Div=>write!(f,"token: `/`"),
+            Mod=>write!(f,"token: `%`"),
+            And=>write!(f,"token: `&`"),
+            Not=>write!(f,"token: `!`"),
+            SingleQuote=>write!(f,"token: `'`"),
+            Backslash=>write!(f,"token: `\\`"),
+            String(_)=>write!(f,"String"),
+            Newline=>write!(f,"Newline"),
+            Number(s)=>write!(f,"number: `{}`",s),
+            Float(s)=>write!(f,"float: `{}`",s),
+            DocComment(s)=>write!(f,"Doc comment"),
+            Comment=>write!(f,"(internal compiler error) Comment"),
+            Error=>write!(f,"(internal compiler error) Error"),
+        }
+    }
 }
 #[derive(Debug,PartialEq,Copy,Clone)]
 pub enum Keyword {
@@ -133,10 +184,35 @@ pub enum Keyword {
     Module,
     This,
 }
+impl Display for Keyword {
+    fn fmt(&self,f:&mut Formatter)->FmtResult {
+        use Keyword::*;
+        match self {
+            Function=>write!(f,"fn"),
+            Type=>write!(f,"type"),
+            Interface=>write!(f,"interface"),
+            Pub=>write!(f,"pub"),
+            Mut=>write!(f,"mut"),
+            Impl=>write!(f,"impl"),
+            Import=>write!(f,"import"),
+            For=>write!(f,"for"),
+            While=>write!(f,"while"),
+            Loop=>write!(f,"loop"),
+            Break=>write!(f,"break"),
+            Return=>write!(f,"return"),
+            Continue=>write!(f,"continue"),
+            Match=>write!(f,"match"),
+            Enum=>write!(f,"enum"),
+            Module=>write!(f,"module"),
+            This=>write!(f,"this"),
+        }
+    }
+}
 
 
 #[derive(Copy,Clone,Debug,PartialEq,Default)]
 pub struct Location {
+    pub line_start_index:usize,
     pub index:usize,
     pub line:usize,
     pub column:usize,
@@ -165,21 +241,26 @@ impl<'input> Iterator for TokenIterator<'input> {
         let item=self.lexer.next()?;
         let span=self.lexer.span();
         println!("Token: {:?}",item);
+        let start=Location {
+            line_start_index:self.line_start,
+            index:span.start,
+            line:self.line,
+            column:span.start-self.line_start,
+        };
         match item {
             Token::Error=>Some(Err(Error{
                 reason:"Invalid token",
                 level:ErrorLevel::LexError,
                 filename:self.filename,
-                line:self.line,
-                column:span.start-self.line_start,
-                line_data:&self.input[self.line_start..span.end],
+                start,
+                end:Location {
+                    line_start_index:self.line_start,
+                    index:span.end,
+                    line:self.line,
+                    column:span.end-self.line_start,
+                },
             })),
             t=>{
-                let start=Location {
-                    index:span.start,
-                    line:self.line,
-                    column:span.start-self.line_start,
-                };
                 match &t {
                     Token::Newline=>{
                         self.line+=span.end-span.start;
@@ -191,10 +272,11 @@ impl<'input> Iterator for TokenIterator<'input> {
                     start,
                     t,
                     Location {
+                        line_start_index:self.line_start,
                         index:span.end,
                         line:self.line,
                         column:span.end-self.line_start,
-                    }
+                    },
                 )))
             },
         }

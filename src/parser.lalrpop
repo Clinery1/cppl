@@ -1,3 +1,4 @@
+use lalrpop_util::ParseError;
 use crate::{
     ast::{
         Function,
@@ -10,24 +11,27 @@ use crate::{
         TypeObjectField,
         Interface,
         FunctionSignature,
-        InterfaceBlock,
-        InterfaceItem,
         Parameters,
         Parameter,
         MethodType,
         AnonFunctionSignature,
         AnonFunction,
+        TypeDef,
+        VarDef,
+        VarAssign,
     },
     lexer::{
         Token,
         Location,
+        Keyword,
     },
+    ErrorLevel,
     Error,
-    Keyword,
+    parse_char,
 };
 
 
-grammar<'input>;
+grammar<'input>(filename:&'input str);
 
 
 extern {
@@ -51,10 +55,8 @@ extern {
         "enum"=>Token::Keyword(Keyword::Enum),
         "module"=>Token::Keyword(Keyword::Module),
         "this"=>Token::Keyword(Keyword::This),
-        "string"=>Token::String(<&'input str>),
         "Word"=>Token::Word(<&'input str>),
         ","=>Token::Comma,
-        "char"=>Token::Char(<&'input str>),
         ":"=>Token::Colon,
         "::"=>Token::Associated,
         ";"=>Token::SemiColon,
@@ -82,7 +84,8 @@ extern {
         "%"=>Token::Mod,
         "&"=>Token::And,
         "!"=>Token::Not,
-        "Label"=>Token::Label(<&'input str>),
+        "'"=>Token::SingleQuote,
+        "\\"=>Token::Backslash,
         "String"=>Token::String(<&'input str>),
         "Newline"=>Token::Newline,
         "Number"=>Token::Number(<&'input str>),
@@ -99,7 +102,7 @@ pub All:Vec<Statement<'input>>={
 
 
 AnonFunctionSignature:AnonFunctionSignature<'input>={
-    "fn" <params:Parameters> <ret_type:(":" <Type>)?>=>AnonFunctionSignature {
+    "fn" <params:Parameters> <ret_type:(":" <TypeEnclosed>)?>=>AnonFunctionSignature {
         params,
         ret_type,
     },
@@ -109,7 +112,7 @@ AnonFunction:AnonFunction<'input>={
 };
 FunctionSignature:FunctionSignature<'input>={
     <public:Public?> "fn" <name:Word> <params:Parameters> <ret_type:(":" <Type>)?>=>FunctionSignature {
-        public:public.unwrap_or_default(),
+        public:public.into(),
         name,
         params,
         ret_type,
@@ -144,9 +147,13 @@ Parameter:Parameter<'input>={
     "mut" <name:Word> ":" <ty:Type>=>Parameter{mutable:true,name,ty},
     <name:Word> ":" <ty:Type>=>Parameter{mutable:false,name,ty},
 };
-Type:Type<'input>=<CompositeType>;
+Type:Type<'input>=<FunctionType>;
+FunctionType:Type<'input>={
+    <sig:AnonFunctionSignature>=>Type::FunctionSig(Box::new(sig)),
+    <CompositeType>,
+};
 CompositeType:Type<'input>={
-    <tys:(<TypeInner> "+")+> <last:TypeInner>=>{
+    <tys:(<UnionType> "+")+> <last:UnionType>=>{
         let mut tys=tys;
         tys.push(last);
         return Type::Composite(tys);
@@ -159,23 +166,81 @@ UnionType:Type<'input>={
         tys.push(last);
         return Type::Union(tys);
     },
-    <FunctionType>,
-};
-FunctionType:Type<'input>={
-    <sig:AnonFunctionSignature>=>Type::FunctionSig(Box::new(sig)),
     <TypeInner>,
 };
 TypeInner:Type<'input>={
-    <name:Word>=>Type::Named{name,generics:Vec::new()},
-    <name:Word> "(" <first:CompositeType> ")"=>{
-        return Type::Named{name,generics:vec![first]};
+    <TypeInnerGeneric>,
+    "(" <FunctionType> ")",
+};
+TypeEnclosed:Type<'input>=<FunctionTypeEnclosed>;
+FunctionTypeEnclosed:Type<'input>={
+    <sig:AnonFunctionSignature>=>Type::FunctionSig(Box::new(sig)),
+    <CompositeTypeEnclosed>,
+};
+CompositeTypeEnclosed:Type<'input>={
+    "(" <tys:(<UnionTypeEnclosed> "+")+> <last:UnionTypeEnclosed> ")"=>{
+        let mut tys=tys;
+        tys.push(last);
+        return Type::Composite(tys);
+    },
+    <UnionTypeEnclosed>,
+};
+UnionTypeEnclosed:Type<'input>={
+    "(" <tys:(<TypeInnerEnclosed> "|")+> <last:TypeInnerEnclosed> ")"=>{
+        let mut tys=tys;
+        tys.push(last);
+        return Type::Union(tys);
+    },
+    <TypeInnerEnclosed>,
+};
+TypeInnerEnclosed:Type<'input>={
+    <TypeInnerGeneric>,
+    "(" <FunctionTypeEnclosed> ")",
+};
+TypeInnerGeneric:Type<'input>={
+    <name:Word>=>{
+        match name {
+            "Uint"=>Type::Uint,
+            "Int"=>Type::Int,
+            "Float"=>Type::Float,
+            "DoubleFloat"=>Type::DoubleFloat,
+            "Byte"=>Type::Byte,
+            "Char"=>Type::Char,
+            "String"=>Type::String,
+            _=>Type::Named{name,generics:Vec::new()},
+        }
+    },
+    <start:@L> <name:Word> "(" <first:CompositeType> ")" <end:@R>=>?{
+        match name {
+            "Uint"|"Int"|"Float"|"DoubleFloat"|"Byte"|"Char"|"String"=>Err(ParseError::User{error:Error {
+                start,
+                end,
+                filename,
+                level:ErrorLevel::ParseError,
+                reason:"builtin types cannot have generics",
+            }}),
+            _=>Ok(Type::Named{name,generics:vec![first]}),
+        }
     },
     <name:Word> "(" <tys:(<CompositeType> ",")+> <last:CompositeType> ")"=>{
         let mut generics=tys;
         generics.push(last);
         return Type::Named{name,generics};
     },
-    "{" <items:TypeObjectField+> "}"=>Type::Object(items),
+    "{" SkipNewline? <fields:(<TypeObjectField> ObjectFieldEnd+)+> <last:TypeObjectField?> "}"=>{
+        let mut fields=fields;
+        if let Some(last)=last {
+            fields.push(last);
+        }
+        return Type::Object{fields,exact:false};
+    },
+    "{" SkipNewline? <fields:(<TypeObjectField> ObjectFieldEnd+)+> <last:TypeObjectField?> "..." SkipNewline? "}"=>{
+        let mut fields=fields;
+        if let Some(last)=last {
+            fields.push(last);
+        }
+        return Type::Object{fields,exact:true};
+    },
 };
 Block:Block<'input>={
     "{" "}"=>Block::new(),
@@ -192,6 +257,9 @@ Statement:Statement<'input>={
     <sig:FunctionSignature> StatementEnd=>Statement::FunctionSig(sig),
     <i:Interface>=>Statement::InterfaceDef(i),
     <expr:Expr> StatementEnd=>Statement::Expr(expr),
+    <type_def:TypeDef> StatementEnd=>Statement::TypeDef(type_def),
+    <var:VarDef> StatementEnd=>Statement::VarDef(var),
+    <assign:VarAssign> StatementEnd=>Statement::VarAssign(assign),
     <"DocComment">=>Statement::Doc(<>),
 };
 Expr:Expr<'input>={
@@ -200,11 +268,11 @@ Expr:Expr<'input>={
     <AssociatedPath>,
     <FieldPath>,
     <Var>,
-    <block:Block>=>Expr::Block(block),
     <function:AnonFunction>=>Expr::AnonFunction(function),
     <l:Expr> "&" <r:Comparison>=>Expr::And(Box::new([l,r])),
     <l:Expr> "|" <r:Comparison>=>Expr::Or(Box::new([l,r])),
     "!" <l:Comparison>=>Expr::Not(Box::new(l)),
+    //"{" <fields:(<Word> ":" <Expr> ObjectFieldEnd)+> "}"=>Expr::Object(fields),
     <Comparison>,
 };
 Comparison:Expr<'input>={
@@ -229,14 +297,17 @@ Factor:Expr<'input>={
 };
 Term:Expr<'input>={
     <s:String>=>Expr::Data(s),
+    <c:Char>=>Expr::Data(c),
     <num:Number>=>Expr::Data(num),
     "-" <num:Number>=>Expr::Negate(Box::new(Expr::Data(num))),
     <num:Float>=>Expr::Data(num),
     "-" <num:Float>=>Expr::Negate(Box::new(Expr::Data(num))),
+    <block:Block>=>Expr::Block(block),
     "(" <Expr> ")",
 };
 Public:Visibility={
     "pub" "(" <w:Word> ")"=>{
+        // temporary workaround. Hopefully I can specify `Word("lib")`, but it depends on the generated parser code.
         match w {
             "lib"=>Visibility::Library,
             "local"=>Visibility::Local,
@@ -256,39 +327,90 @@ Mutable:Visibility={
     "mut"=>Visibility::Full,
 };
 Interface:Interface<'input>={
-    <public:Public?> "interface" <name:Word> <requirement:(":" <Type>)?> <block:InterfaceBlock>=>Interface {
-        public:public.unwrap_or_default(),
+    <public:Public?> "interface" <name:Word> <requirement:(":" <Type>)?> <block:Block>=>Interface {
+        public:public.into(),
         name,
         requirement,
         block,
     },
 };
-InterfaceBlock:InterfaceBlock<'input>={
-    "{" "}"=>InterfaceBlock::new(),
-    "{" SkipNewline "}"=>InterfaceBlock::new(),
-    "{" <InterfaceBlockInner+> SkipNewline "}",
-    "{" <InterfaceBlockInner+> "}",
+TypeDef:TypeDef<'input>={
+    <public:Public?> "type" <name:Word> "=" <ty:Type>=>TypeDef{public:public.into(),name,ty},
 };
-InterfaceBlockInner:InterfaceItem<'input>={
-    SkipNewline <InterfaceItem>,
-    <InterfaceItem>,
+VarDef:VarDef<'input>={
+    <public:Public?> <mutable:Mutable?> <name:Word> ":=" <data:Expr>=>VarDef{public:public.into(),mutable:mutable.into(),name,data:Some(data),ty:None},
+    <public:Public?> <mutable:Mutable?> <name:Word> ":" <ty:Type> "=" <data:Expr>=>VarDef{public:public.into(),mutable:mutable.into(),name,data:Some(data),ty:Some(ty)},
+    <public:Public?> <mutable:Mutable?> <name:Word> ":" <ty:Type>=>VarDef{public:public.into(),mutable:mutable.into(),name,data:None,ty:Some(ty)},
 };
-InterfaceItem:InterfaceItem<'input>={
-    <f:Function>=>InterfaceItem::FunctionDef(f),
-    <sig:FunctionSignature>=>InterfaceItem::FunctionSig(sig),
-    <"DocComment">=>InterfaceItem::Doc(<>),
-};
+VarAssign:VarAssign<'input>=<name:Word> "=" <data:Expr>=>VarAssign{name,data};
 
 
 TypeObjectField:TypeObjectField<'input>={
-    <name:Word> ":" <ty:Type>=>TypeObjectField{public:Visibility::None,mutable:Visibility::None,name,ty},
-    <mutable:Mutable> <name:Word> ":" <ty:Type>=>TypeObjectField{public:Visibility::None,mutable,name,ty},
-    <public:Public> <name:Word> ":" <ty:Type>=>TypeObjectField{public,mutable:Visibility::None,name,ty},
-    <public:Public> <mutable:Mutable> <name:Word> ":" <ty:Type>=>TypeObjectField{public,mutable,name,ty},
+    <doc:"DocComment"?> <name:Word> ":" <ty:Type>=>TypeObjectField{public:Visibility::None,mutable:Visibility::None,name,ty,doc},
+    <doc:"DocComment"?> <mutable:Mutable> <name:Word> ":" <ty:Type>=>TypeObjectField{public:Visibility::None,mutable,name,ty,doc},
+    <doc:"DocComment"?> <public:Public> <name:Word> ":" <ty:Type>=>TypeObjectField{public,mutable:Visibility::None,name,ty,doc},
+    <doc:"DocComment"?> <public:Public> <mutable:Mutable> <name:Word> ":" <ty:Type>=>TypeObjectField{public,mutable,name,ty,doc},
+};
+ObjectFieldEnd:()={
+    ","=>(),
+    "Newline"=>(),
 };
 String:Data<'input>="String"=>Data::String(<>.into());
 Number:Data<'input>="Number"=>Data::GenericNumber(<>);
 Float:Data<'input>="Float"=>Data::GenericFloat(<>);
+Char:Data<'input>={
+    "'" "\\" "'" "'"=>Data::Char('\''),
+    "'" "\\" "\\" "'"=>Data::Char('\\'),
+    <start:@L> "'" "\\" <num:"Number"> "'" <end:@R>=>?{
+        if num!="0" {
+            return Err(ParseError::User{error:Error {
+                filename,
+                start,
+                end,
+                level:ErrorLevel::ParseError,
+                reason:"invalid escape sequence",
+            }});
+        }
+        return Ok(Data::Char('\0'));
+    },
+    <start:@L> "'" "\\" <w:Word> "{" <n:"Number"> "}" "'" <end:@R>=>?{
+        let mut s=String::with_capacity(w.len()+1);
+        s.push('\\');
+        s.push_str(w);
+        s.push('{');
+        s.push_str(n);
+        s.push('}');
+        return parse_char(s,filename,start,end).map(Data::Char).map_err(|error|ParseError::User{error});
+    },
+    <start:@L> "'" "\\" <w:Word> "{" <hex:Word> "}" "'" <end:@R>=>?{
+        let mut s=String::with_capacity(w.len()+1);
+        s.push('\\');
+        s.push_str(w);
+        s.push('{');
+        s.push_str(hex);
+        s.push('}');
+        return parse_char(s,filename,start,end).map(Data::Char).map_err(|error|ParseError::User{error});
+    },
+    <start:@L> "'" "\\" <w:Word> "{" <n:"Number"> <hex:Word> "}" "'" <end:@R>=>?{
+        let mut s=String::with_capacity(w.len()+1);
+        s.push('\\');
+        s.push_str(w);
+        s.push('{');
+        s.push_str(n);
+        s.push_str(hex);
+        s.push('}');
+        return parse_char(s,filename,start,end).map(Data::Char).map_err(|error|ParseError::User{error});
+    },
+    <start:@L> "'" "\\" <w:Word> "'" <end:@R>=>?{
+        let mut s=String::with_capacity(w.len()+1);
+        s.push('\\');
+        s.push_str(w);
+        return parse_char(s,filename,start,end).map(Data::Char).map_err(|error|ParseError::User{error});
+    },
+    <start:@L> "'" <w:Word> "'" <end:@R>=>?{
+        return parse_char(w.to_string(),filename,start,end).map(Data::Char).map_err(|error|ParseError::User{error});
+    },
+};
 Var:Expr<'input>=<name:Word>=>Expr::Var(name);
 AssociatedPath:Expr<'input>=<first:Word> <path:AdditionalAssociated+>=>{
     let mut path=path;
@@ -303,16 +425,9 @@ MethodCall:Expr<'input>={
         name,
         args:Vec::new()
     },
-    <from:Expr> "." <name:Word> "(" <arg:Expr> ")"=>{
-        return Expr::MethodCall {
-            from:Box::new(from),
-            name,
-            args:vec![arg],
-        };
-    },
-    <from:Expr> "." <name:Word> "(" <arg0:Expr> <args:AdditionalArg+> ")"=>{
+    <from:Expr> "." <name:Word> "(" <args:(<Expr> ObjectFieldEnd)*> <last:Expr> ObjectFieldEnd? ")"=>{
         let mut args=args;
-        args.insert(0,arg0);
+        args.push(last);
         return Expr::MethodCall {
             from:Box::new(from),
             name,
@@ -322,15 +437,9 @@ MethodCall:Expr<'input>={
 };
 FunctionCall:Expr<'input>={
     <name:Word> "(" ")"=>Expr::FunctionCall{name,args:Vec::new()},
-    <name:Word> "(" <arg:Expr> ")"=>{
-        return Expr::FunctionCall {
-            name,
-            args:vec![arg],
-        };
-    },
-    <name:Word> "(" <arg0:Expr> <args:AdditionalArg+> ")"=>{
+    <name:Word> "(" <args:(<Expr> ObjectFieldEnd)*> <last:Expr> ObjectFieldEnd? ")"=>{
         let mut args=args;
-        args.insert(0,arg0);
+        args.push(last);
         return Expr::FunctionCall {
             name,
             args,

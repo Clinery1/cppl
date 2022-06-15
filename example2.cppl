@@ -3,9 +3,6 @@ fn main[args:Array(String)] {
         println(arg)
     });
     println("Hello, World!")
-}
-
-
-interface IntoString {
-    fn into_string[this]:String
+    mut x:Char='\u{abcd}'
+    x=10    // will eventually be an error when I implement type-checking 
 }

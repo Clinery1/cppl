@@ -4,7 +4,6 @@ use std::{
 
 
 pub type Block<'input>=Vec<Statement<'input>>;
-pub type InterfaceBlock<'input>=Vec<InterfaceItem<'input>>;
 
 
 #[derive(Debug,PartialEq,Copy,Clone)]
@@ -13,6 +12,11 @@ pub enum Visibility {
     Local,
     Full,
     None,
+}
+impl From<Option<Self>> for Visibility {
+    fn from(opt:Option<Self>)->Self {
+        opt.unwrap_or_default()
+    }
 }
 impl Default for Visibility {
     fn default()->Self {
@@ -25,16 +29,32 @@ pub enum Type<'input> {
         name:&'input str,
         generics:Vec<Self>,
     },
-    Object(Vec<TypeObjectField<'input>>),
+    Object {
+        fields:Vec<TypeObjectField<'input>>,
+        exact:bool,
+    },
     Union(Vec<Self>),
     Composite(Vec<Self>),
     FunctionSig(Box<AnonFunctionSignature<'input>>),
+    Uint,
+    Int,
+    Float,
+    DoubleFloat,
+    Byte,
+    Char,
+    String,
+    GenericNumber,
+    GenericFloat,
+    Unknown,
 }
 #[derive(Debug)]
 pub enum Statement<'input> {
     FunctionDef(Function<'input>),
     FunctionSig(FunctionSignature<'input>),
     InterfaceDef(Interface<'input>),
+    TypeDef(TypeDef<'input>),
+    VarDef(VarDef<'input>),
+    VarAssign(VarAssign<'input>),
     Expr(Expr<'input>),
     Doc(&'input str),
 }
@@ -72,6 +92,7 @@ pub enum Expr<'input> {
     And(Box<[Self;2]>),
     Or(Box<[Self;2]>),
     Not(Box<Self>),
+    ObjectCreation(Vec<(&'input str,Self)>),
     AnonFunction(AnonFunction<'input>),
 }
 #[derive(Debug)]
@@ -83,12 +104,7 @@ pub enum Data<'input> {
     Int(i64),
     Float(f32),
     LargeFloat(f64),
-}
-#[derive(Debug)]
-pub enum InterfaceItem<'input> {
-    FunctionSig(FunctionSignature<'input>),
-    FunctionDef(Function<'input>),
-    Doc(&'input str),
+    Char(char),
 }
 #[derive(Debug)]
 pub enum MethodType {
@@ -173,11 +189,31 @@ pub struct TypeObjectField<'input> {
     pub mutable:Visibility,
     pub name:&'input str,
     pub ty:Type<'input>,
+    pub doc:Option<&'input str>,
 }
 #[derive(Debug)]
 pub struct Interface<'input> {
     pub public:Visibility,
     pub name:&'input str,
     pub requirement:Option<Type<'input>>,
-    pub block:InterfaceBlock<'input>,
+    pub block:Block<'input>,
+}
+#[derive(Debug)]
+pub struct TypeDef<'input> {
+    pub public:Visibility,
+    pub name:&'input str,
+    pub ty:Type<'input>,
+}
+#[derive(Debug)]
+pub struct VarDef<'input> {
+    pub public:Visibility,
+    pub mutable:Visibility,
+    pub name:&'input str,
+    pub ty:Option<Type<'input>>,
+    pub data:Option<Expr<'input>>,
+}
+#[derive(Debug)]
+pub struct VarAssign<'input> {
+    pub name:&'input str,
+    pub data:Expr<'input>,
 }
