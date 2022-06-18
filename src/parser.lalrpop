@@ -329,7 +329,12 @@ Import:Import<'input>={
 };
 ImportBlock:Vec<Import<'input>>={
     "{" "}"=>Vec::new(),
-    "{" SkipNewline? <imports:(<Import> ObjectFieldEnd)*> <last:Import> ObjectFieldEnd? "}"=>{
+    "{" SkipNewline? <imports:(<Import> ObjectFieldEnd)*> <last:Import> SkipNewline? "}"=>{
+        let mut imports=imports;
+        imports.push(last);
+        return imports;
+    },
+    "{" SkipNewline? <imports:(<Import> ObjectFieldEnd)*> <last:Import> ObjectFieldEnd "}"=>{
         let mut imports=imports;
         imports.push(last);
         return imports;
