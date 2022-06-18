@@ -11,17 +11,6 @@ pub enum Visibility {
     Library,
     Local,
     Full,
-    None,
-}
-impl From<Option<Self>> for Visibility {
-    fn from(opt:Option<Self>)->Self {
-        opt.unwrap_or_default()
-    }
-}
-impl Default for Visibility {
-    fn default()->Self {
-        Visibility::None
-    }
 }
 #[derive(Debug)]
 pub enum Type<'input> {
@@ -41,8 +30,10 @@ pub enum Type<'input> {
     Float,
     DoubleFloat,
     Byte,
+    Bool,
     Char,
     String,
+    Never,
     GenericNumber,
     GenericFloat,
     Unknown,
@@ -54,9 +45,19 @@ pub enum Statement<'input> {
     InterfaceDef(Interface<'input>),
     TypeDef(TypeDef<'input>),
     VarDef(VarDef<'input>),
+    StaticVarDef(StaticVarDef<'input>),
+    ConstVarDef(ConstVarDef<'input>),
     VarAssign(VarAssign<'input>),
     Expr(Expr<'input>),
-    Doc(&'input str),
+    Import(Import<'input>),
+    Return {
+        label:Option<&'input str>,
+        val:Option<Expr<'input>>,
+    },
+    Continue(Option<&'input str>),
+    Enum(Enum<'input>),
+    Module(&'input str),
+    Impl(Impl<'input>),
 }
 #[derive(Debug)]
 pub enum Expr<'input> {
@@ -69,10 +70,7 @@ pub enum Expr<'input> {
         name:&'input str,
         args:Vec<Self>,
     },
-    FunctionCall {
-        name:&'input str,
-        args:Vec<Self>,
-    },
+    FunctionCall(FunctionCall<'input>),
     AssociatedPath(Vec<&'input str>),
     Var(&'input str),
     Block(Block<'input>),
@@ -92,19 +90,34 @@ pub enum Expr<'input> {
     And(Box<[Self;2]>),
     Or(Box<[Self;2]>),
     Not(Box<Self>),
-    ObjectCreation(Vec<(&'input str,Self)>),
+    IsType(Box<Self>,Type<'input>),
+    ObjectCreation(Vec<ObjectField<'input>>),
     AnonFunction(AnonFunction<'input>),
+    Ref(Box<Self>),
+    RefMut(Box<Self>),
+    ForeverLoop(Vec<Statement<'input>>),
+    WhileLoop {
+        condition:Box<Expr<'input>>,
+        block:Vec<Statement<'input>>,
+    },
+    ForLoop {
+        var:&'input str,
+        iterator:Box<Expr<'input>>,
+        block:Vec<Statement<'input>>,
+    },
+    Match(Box<Match<'input>>),
 }
 #[derive(Debug)]
 pub enum Data<'input> {
     String(Cow<'input,str>),
-    GenericNumber(&'input str),
-    GenericFloat(&'input str),
+    GenericNumber(bool,&'input str),
+    GenericFloat(bool,&'input str),
     UInt(u64),
     Int(i64),
     Float(f32),
     LargeFloat(f64),
     Char(char),
+    Bool(bool),
 }
 #[derive(Debug)]
 pub enum MethodType {
@@ -112,8 +125,81 @@ pub enum MethodType {
     ThisMut,
     None,
 }
+#[derive(Debug)]
+pub enum Import<'input> {
+    Path(Vec<&'input str>),
+    PathBlock {
+        path:Vec<&'input str>,
+        block:Vec<Self>,
+    },
+}
+#[derive(Debug)]
+pub enum MatchPattern<'input> {
+    Data(Data<'input>),
+    MethodCall {
+        name:&'input str,
+        args:Vec<Expr<'input>>,
+    },
+    Structure(MatchPatternStructure<'input>),
+    Var(&'input str),
+    Equal(Expr<'input>),
+    NotEqual(Expr<'input>),
+    GreaterEqual(Expr<'input>),
+    LessEqual(Expr<'input>),
+    Greater(Expr<'input>),
+    Less(Expr<'input>),
+    IsType(Type<'input>),
+}
+#[derive(Debug)]
+pub enum MatchPatternStructureItem<'input> {
+    Field(&'input str),
+    NamedField {
+        name:&'input str,
+        rename:&'input str,
+    },
+    NamedBlock {
+        name:&'input str,
+        block:MatchPatternStructure<'input>,
+    },
+}
+#[derive(Debug)]
+pub enum MatchPatternStructure<'input> {
+    Block {
+        exact:bool,
+        block:Vec<MatchPatternStructureItem<'input>>,
+    },
+    TypedBlock {
+        exact:bool,
+        type_name:&'input str,
+        block:Vec<MatchPatternStructureItem<'input>>,
+    },
+}
 
 
+#[derive(Debug)]
+pub struct Impl<'input> {
+    pub params:Option<Vec<TypeParameter<'input>>>,
+    pub interface:Option<Type<'input>>,
+    pub for_ty:Type<'input>,
+    pub block:Block<'input>,
+}
+#[derive(Debug)]
+pub struct Enum<'input> {
+    pub public:Option<Visibility>,
+    pub name:&'input str,
+    pub params:Option<Vec<TypeParameter<'input>>>,
+    pub variants:Vec<Type<'input>>,
+}
+#[derive(Debug)]
+pub struct FunctionCall<'input> {
+    pub path:Vec<&'input str>,
+    pub args:Vec<Expr<'input>>,
+}
+#[derive(Debug)]
+pub struct Match<'input> {
+    pub to_match:Expr<'input>,
+    pub leafs:Vec<(MatchPattern<'input>,Expr<'input>)>,
+}
 #[derive(Debug)]
 pub struct AnonFunctionSignature<'input> {
     pub params:Parameters<'input>,
@@ -137,7 +223,7 @@ pub struct AnonFunction<'input> {
 }
 #[derive(Debug)]
 pub struct FunctionSignature<'input> {
-    pub public:Visibility,
+    pub public:Option<Visibility>,
     pub name:&'input str,
     pub params:Parameters<'input>,
     pub ret_type:Option<Type<'input>>,
@@ -156,7 +242,7 @@ impl<'input> FunctionSignature<'input> {
 }
 #[derive(Debug)]
 pub struct Function<'input> {
-    pub public:Visibility,
+    pub public:Option<Visibility>,
     pub name:&'input str,
     pub params:Parameters<'input>,
     pub ret_type:Option<Type<'input>>,
@@ -185,35 +271,63 @@ pub struct Parameter<'input> {
 }
 #[derive(Debug)]
 pub struct TypeObjectField<'input> {
-    pub public:Visibility,
-    pub mutable:Visibility,
+    pub public:Option<Visibility>,
+    pub mutable:Option<Visibility>,
     pub name:&'input str,
     pub ty:Type<'input>,
-    pub doc:Option<&'input str>,
 }
 #[derive(Debug)]
 pub struct Interface<'input> {
-    pub public:Visibility,
+    pub public:Option<Visibility>,
     pub name:&'input str,
+    pub params:Option<Vec<TypeParameter<'input>>>,
     pub requirement:Option<Type<'input>>,
     pub block:Block<'input>,
 }
 #[derive(Debug)]
 pub struct TypeDef<'input> {
-    pub public:Visibility,
+    pub public:Option<Visibility>,
     pub name:&'input str,
+    pub params:Option<Vec<TypeParameter<'input>>>,
     pub ty:Type<'input>,
 }
 #[derive(Debug)]
-pub struct VarDef<'input> {
-    pub public:Visibility,
-    pub mutable:Visibility,
+pub struct TypeParameter<'input> {
     pub name:&'input str,
     pub ty:Option<Type<'input>>,
-    pub data:Option<Expr<'input>>,
+}
+#[derive(Debug)]
+pub struct VarDef<'input> {
+    pub public:Option<Visibility>,
+    pub mutable:Option<Visibility>,
+    pub name:&'input str,
+    pub ty:Option<Type<'input>>,
+    pub data:Expr<'input>,
+}
+#[derive(Debug)]
+pub struct StaticVarDef<'input> {
+    pub public:Option<Visibility>,
+    pub mutable:Option<Visibility>,
+    pub name:&'input str,
+    pub ty:Type<'input>,
+    pub data:Expr<'input>,
+}
+#[derive(Debug)]
+pub struct ConstVarDef<'input> {
+    pub public:Option<Visibility>,
+    pub name:&'input str,
+    pub ty:Type<'input>,
+    pub data:Expr<'input>,
 }
 #[derive(Debug)]
 pub struct VarAssign<'input> {
+    pub name:&'input str,
+    pub data:Expr<'input>,
+}
+#[derive(Debug)]
+pub struct ObjectField<'input> {
+    pub public:Option<Visibility>,
+    pub mutable:Option<Visibility>,
     pub name:&'input str,
     pub data:Expr<'input>,
 }

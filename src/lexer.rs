@@ -25,13 +25,20 @@ pub enum Token<'input> {
     #[token("for", |_|Keyword::For)]
     #[token("while", |_|Keyword::While)]
     #[token("loop", |_|Keyword::Loop)]
-    #[token("break", |_|Keyword::Break)]
     #[token("return", |_|Keyword::Return)]
     #[token("continue", |_|Keyword::Continue)]
     #[token("match", |_|Keyword::Match)]
     #[token("enum", |_|Keyword::Enum)]
     #[token("module", |_|Keyword::Module)]
     #[token("this", |_|Keyword::This)]
+    #[token("true", |_|Keyword::True)]
+    #[token("false", |_|Keyword::False)]
+    #[token("const", |_|Keyword::Const)]
+    #[token("static", |_|Keyword::Static)]
+    #[token("and", |_|Keyword::And)]
+    #[token("or", |_|Keyword::Or)]
+    #[token("in", |_|Keyword::In)]
+    #[token("is", |_|Keyword::Is)]
     Keyword(Keyword),
     #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*",slice)]
     Word(&'input str),
@@ -95,6 +102,8 @@ pub enum Token<'input> {
     SingleQuote,
     #[token("\\")]
     Backslash,
+    #[token("=>")]
+    MatchSeparator,
     #[regex("r#*\"",parse_raw_string)]
     #[regex("\"[^\"]*\"",fix_string)]
     String(&'input str),
@@ -107,13 +116,15 @@ pub enum Token<'input> {
     #[regex("[0-9]+\\.",slice)]
     Float(&'input str),
     #[regex("///[^\n]*",line_doc_comment_fix)]
-    #[regex("/\\*\\*[^**/]*\\*\\*/",block_doc_comment_fix)]
+    /// Disable block comments for now. We can't do syntax highlighting on them properly in
+    /// tree-sitter and I don't know the proper regex for them.
+    //#[regex("/\\*\\*[^**/]*\\*\\*/",block_doc_comment_fix)]
     DocComment(&'input str),
     #[regex("[ \t]+", logos::skip)]
     //#[regex("[ \t]+")]
     //Whitespace,
     #[regex("//[^\n]*",logos::skip)]
-    #[regex("/\\*[^*/]*\\*/",logos::skip)]
+    //#[regex("/\\*[^*/]*\\*/",logos::skip)]
     Comment,
     #[error]
     Error,
@@ -154,11 +165,12 @@ impl<'source> Display for Token<'source> {
             Not=>write!(f,"token: `!`"),
             SingleQuote=>write!(f,"token: `'`"),
             Backslash=>write!(f,"token: `\\`"),
+            MatchSeparator=>write!(f,"token: `=>`"),
             String(_)=>write!(f,"String"),
             Newline=>write!(f,"Newline"),
             Number(s)=>write!(f,"number: `{}`",s),
             Float(s)=>write!(f,"float: `{}`",s),
-            DocComment(s)=>write!(f,"Doc comment"),
+            DocComment(_)=>write!(f,"Doc comment"),
             Comment=>write!(f,"(internal compiler error) Comment"),
             Error=>write!(f,"(internal compiler error) Error"),
         }
@@ -176,13 +188,20 @@ pub enum Keyword {
     For,
     While,
     Loop,
-    Break,
     Return,
     Continue,
     Match,
     Enum,
     Module,
     This,
+    True,
+    False,
+    Const,
+    Static,
+    And,
+    Or,
+    In,
+    Is,
 }
 impl Display for Keyword {
     fn fmt(&self,f:&mut Formatter)->FmtResult {
@@ -198,13 +217,20 @@ impl Display for Keyword {
             For=>write!(f,"for"),
             While=>write!(f,"while"),
             Loop=>write!(f,"loop"),
-            Break=>write!(f,"break"),
             Return=>write!(f,"return"),
             Continue=>write!(f,"continue"),
             Match=>write!(f,"match"),
             Enum=>write!(f,"enum"),
             Module=>write!(f,"module"),
             This=>write!(f,"this"),
+            True=>write!(f,"true"),
+            False=>write!(f,"false"),
+            Const=>write!(f,"const"),
+            Static=>write!(f,"static"),
+            And=>write!(f,"and"),
+            Or=>write!(f,"or"),
+            In=>write!(f,"in"),
+            Is=>write!(f,"is"),
         }
     }
 }
@@ -218,57 +244,98 @@ pub struct Location {
     pub column:usize,
 }
 pub struct TokenIterator<'input> {
-    input:&'input str,
+    //input:&'input str,
+    skip_doc_comments:bool,
     filename:&'input str,
     line:usize,
     line_start:usize,
     lexer:Lexer<'input,Token<'input>>,
+    next_token:Option<Token<'input>>,
 }
 impl<'input> TokenIterator<'input> {
-    pub fn new(input:&'input str,filename:&'input str)->Self {
+    pub fn new(input:&'input str,filename:&'input str,skip_doc_comments:bool)->Self {
         TokenIterator {
-            input,
+            //input,
+            skip_doc_comments,
             filename,
             line:0,
             line_start:0,
             lexer:Token::lexer(input),
+            next_token:None,
         }
     }
 }
 impl<'input> Iterator for TokenIterator<'input> {
     type Item=Result<(Location,Token<'input>,Location),Error<'input,&'static str>>;
     fn next(&mut self)->Option<Self::Item> {
-        let item=self.lexer.next()?;
-        let span=self.lexer.span();
-        println!("Token: {:?}",item);
-        let start=Location {
-            line_start_index:self.line_start,
-            index:span.start,
-            line:self.line,
-            column:span.start-self.line_start,
-        };
-        match item {
-            Token::Error=>Some(Err(Error{
-                reason:"Invalid token",
-                level:ErrorLevel::LexError,
-                filename:self.filename,
-                start,
-                end:Location {
-                    line_start_index:self.line_start,
-                    index:span.end,
-                    line:self.line,
-                    column:span.end-self.line_start,
+        if self.next_token.is_none() {
+            self.next_token=self.lexer.next();
+        }
+        if self.next_token.is_none() {
+            return None;
+        }
+        loop {
+            let span=self.lexer.span();
+            let start=Location {
+                line_start_index:self.line_start,
+                index:span.start,
+                line:self.line,
+                column:span.start-self.line_start,
+            };
+            let item=self.next_token.take()?;
+            match item {
+                Token::Newline=>{
+                    self.next_token=self.lexer.next();
+                    self.line+=span.end-span.start;
+                    self.line_start=span.end;
+                    println!("Token after newline: {:?}",self.next_token);
+                    match &self.next_token {
+                        Some(Token::Newline)=>continue,
+                        Some(Token::DocComment(_))=>if self.skip_doc_comments{continue},
+                        Some(Token::Comment)=>continue,
+                        _=>{},
+                    }
+                    return Some(Ok((
+                        start,
+                        Token::Newline,
+                        Location {
+                            line_start_index:self.line_start,
+                            index:span.end,
+                            line:self.line,
+                            column:span.end-self.line_start,
+                        },
+                    )));
                 },
-            })),
-            t=>{
-                match &t {
-                    Token::Newline=>{
-                        self.line+=span.end-span.start;
-                        self.line_start=span.end;
+                Token::Error=>return Some(Err(Error{
+                    reason:"Invalid token",
+                    level:ErrorLevel::LexError,
+                    filename:self.filename,
+                    start,
+                    end:Location {
+                        line_start_index:self.line_start,
+                        index:span.end,
+                        line:self.line,
+                        column:span.end-self.line_start,
                     },
-                    _=>{},
-                }
-                Some(Ok((
+                })),
+                Token::DocComment(c)=>{
+                    if self.skip_doc_comments {
+                        self.next_token=self.lexer.next();
+                        continue;
+                    } else {
+                        return Some(Ok((
+                            start,
+                            Token::DocComment(c),
+                            Location {
+                                line_start_index:self.line_start,
+                                index:span.end,
+                                line:self.line,
+                                column:span.end-self.line_start,
+                            },
+                        )));
+                    }
+                },
+                t=>return Some(Ok((
                     start,
                     t,
                     Location {
@@ -277,8 +344,8 @@ impl<'input> Iterator for TokenIterator<'input> {
                         line:self.line,
                         column:span.end-self.line_start,
                     },
-                )))
-            },
+                ))),
+            }
         }
     }
 }
@@ -287,12 +354,9 @@ impl<'input> Iterator for TokenIterator<'input> {
 fn line_doc_comment_fix<'input>(lex:&mut Lexer<'input,Token<'input>>)->&'input str {
     return lex.slice().trim_end_matches('\n').trim_start_matches("///").trim();
 }
-fn block_doc_comment_fix<'input>(lex:&mut Lexer<'input,Token<'input>>)->&'input str {
-    return lex.slice().trim_end_matches("**/").trim_start_matches("/**").trim();
-}
-fn label_fix<'input>(lex:&mut Lexer<'input,Token<'input>>)->&'input str {
-    return lex.slice().trim_matches('^');
-}
+//fn block_doc_comment_fix<'input>(lex:&mut Lexer<'input,Token<'input>>)->&'input str {
+//    return lex.slice().trim_end_matches("**/").trim_start_matches("/**").trim();
+//}
 fn slice<'input>(lex:&mut Lexer<'input,Token<'input>>)->&'input str {
     return lex.slice();
 }

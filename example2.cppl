@@ -1,8 +1,60 @@
-fn main[args:Array(String)] {
+import std::io::{
+    println,
+    Read,
+    Write,
+    CONSTANT
+}
+
+
+enum BuiltinType {
+    Int,
+    Uint,
+    Float,
+    DoubleFloat,
+}
+impl Print for BuiltinType {
+    fn print[this] {
+        match this {
+            is Int=>{
+                print("Int: ")
+                println(this)
+            },
+            is Uint=>{
+                print("Uint: ")
+                println(this)
+            },
+            is Float=>{
+                print("Float: ")
+                println(this)
+            },
+            is DoubleFloat=>{
+                print("DoubleFloat: ")
+                println(this)
+            },
+        }
+    }
+}
+
+
+interface Print {
+    fn print[this]
+}
+
+
+/// Doc Comments are ignored now
+fn main[args:Array(String)]:Int {
     args.into_iter().for_each(fn[arg:String] {
         println(arg)
     });
-    println("Hello, World!")
-    mut x:Char='\u{abcd}'
-    x=10    // will eventually be an error when I implement type-checking 
+    while z.x {
+        println(x)
+    }
+    static X:Int=5-5
+    match x {
+        ==5=>{},
+    }
+    //std::io::println("Hello, World!")
+    //mut(lib) x:Char='\u{2500}'
+    //x=10    // will eventually be an error when I implement type-checking
+    //x:=&mut true and false
 }

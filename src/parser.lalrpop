@@ -19,11 +19,22 @@ use crate::{
         TypeDef,
         VarDef,
         VarAssign,
+        ObjectField,
+        Import,
+        ConstVarDef,
+        StaticVarDef,
+        Match,
+        MatchPattern,
+        MatchPatternStructure,
+        MatchPatternStructureItem,
+        FunctionCall,
+        Enum,
+        TypeParameter,
+        Impl,
     },
     lexer::{
         Token,
         Location,
-        Keyword,
     },
     ErrorLevel,
     Error,
@@ -38,23 +49,30 @@ extern {
     type Location=Location;
     type Error=crate::Error<'input,&'static str>;
     enum Token<'input> {
-        "fn"=>Token::Keyword(Keyword::Function),
-        "type"=>Token::Keyword(Keyword::Type),
-        "interface"=>Token::Keyword(Keyword::Interface),
-        "pub"=>Token::Keyword(Keyword::Pub),
-        "mut"=>Token::Keyword(Keyword::Mut),
-        "impl"=>Token::Keyword(Keyword::Impl),
-        "import"=>Token::Keyword(Keyword::Import),
-        "for"=>Token::Keyword(Keyword::For),
-        "while"=>Token::Keyword(Keyword::While),
-        "loop"=>Token::Keyword(Keyword::Loop),
-        "break"=>Token::Keyword(Keyword::Break),
-        "return"=>Token::Keyword(Keyword::Return),
-        "continue"=>Token::Keyword(Keyword::Continue),
-        "match"=>Token::Keyword(Keyword::Match),
-        "enum"=>Token::Keyword(Keyword::Enum),
-        "module"=>Token::Keyword(Keyword::Module),
-        "this"=>Token::Keyword(Keyword::This),
+        "fn"=>Token::Keyword(crate::Keyword::Function),
+        "type"=>Token::Keyword(crate::Keyword::Type),
+        "interface"=>Token::Keyword(crate::Keyword::Interface),
+        "pub"=>Token::Keyword(crate::Keyword::Pub),
+        "mut"=>Token::Keyword(crate::Keyword::Mut),
+        "impl"=>Token::Keyword(crate::Keyword::Impl),
+        "import"=>Token::Keyword(crate::Keyword::Import),
+        "for"=>Token::Keyword(crate::Keyword::For),
+        "while"=>Token::Keyword(crate::Keyword::While),
+        "loop"=>Token::Keyword(crate::Keyword::Loop),
+        "return"=>Token::Keyword(crate::Keyword::Return),
+        "continue"=>Token::Keyword(crate::Keyword::Continue),
+        "match"=>Token::Keyword(crate::Keyword::Match),
+        "enum"=>Token::Keyword(crate::Keyword::Enum),
+        "module"=>Token::Keyword(crate::Keyword::Module),
+        "this"=>Token::Keyword(crate::Keyword::This),
+        "true"=>Token::Keyword(crate::Keyword::True),
+        "false"=>Token::Keyword(crate::Keyword::False),
+        "const"=>Token::Keyword(crate::Keyword::Const),
+        "static"=>Token::Keyword(crate::Keyword::Static),
+        "and"=>Token::Keyword(crate::Keyword::And),
+        "or"=>Token::Keyword(crate::Keyword::Or),
+        "in"=>Token::Keyword(crate::Keyword::In),
+        "is"=>Token::Keyword(crate::Keyword::Is),
         "Word"=>Token::Word(<&'input str>),
         ","=>Token::Comma,
         ":"=>Token::Colon,
@@ -86,11 +104,11 @@ extern {
         "!"=>Token::Not,
         "'"=>Token::SingleQuote,
         "\\"=>Token::Backslash,
+        "=>"=>Token::MatchSeparator,
         "String"=>Token::String(<&'input str>),
         "Newline"=>Token::Newline,
         "Number"=>Token::Number(<&'input str>),
         "Float"=>Token::Float(<&'input str>),
-        "DocComment"=>Token::DocComment(<&'input str>),
     }
 }
 
@@ -112,7 +130,7 @@ AnonFunction:AnonFunction<'input>={
 };
 FunctionSignature:FunctionSignature<'input>={
     <public:Public?> "fn" <name:Word> <params:Parameters> <ret_type:(":" <Type>)?>=>FunctionSignature {
-        public:public.into(),
+        public,
         name,
         params,
         ret_type,
@@ -147,6 +165,15 @@ Parameter:Parameter<'input>={
     "mut" <name:Word> ":" <ty:Type>=>Parameter{mutable:true,name,ty},
     <name:Word> ":" <ty:Type>=>Parameter{mutable:false,name,ty},
 };
+TypeParameters:Vec<TypeParameter<'input>>={
+    "[" "]"=>Vec::new(),
+    "[" <params:(<TypeParameter> ",")*> <last:TypeParameter> ","? "]"=>{
+        let mut params=params;
+        params.push(last);
+        return params;
+    },
+};
+TypeParameter:TypeParameter<'input>=<name:Word> <ty:(":" <Type>)?>=>TypeParameter{name,ty};
 Type:Type<'input>=<FunctionType>;
 FunctionType:Type<'input>={
     <sig:AnonFunctionSignature>=>Type::FunctionSig(Box::new(sig)),
@@ -205,14 +232,24 @@ TypeInnerGeneric:Type<'input>={
             "Float"=>Type::Float,
             "DoubleFloat"=>Type::DoubleFloat,
             "Byte"=>Type::Byte,
+            "Bool"=>Type::Bool,
             "Char"=>Type::Char,
             "String"=>Type::String,
+            "Never"=>Type::Never,
             _=>Type::Named{name,generics:Vec::new()},
         }
     },
     <start:@L> <name:Word> "(" <first:CompositeType> ")" <end:@R>=>?{
         match name {
-            "Uint"|"Int"|"Float"|"DoubleFloat"|"Byte"|"Char"|"String"=>Err(ParseError::User{error:Error {
+            "Uint"|
+            "Int"|
+            "Float"|
+            "DoubleFloat"|
+            "Byte"|
+            "Bool"|
+            "Char"|
+            "String"|
+            "Never"=>Err(ParseError::User{error:Error {
                 start,
                 end,
                 filename,
@@ -259,20 +296,61 @@ Statement:Statement<'input>={
     <expr:Expr> StatementEnd=>Statement::Expr(expr),
     <type_def:TypeDef> StatementEnd=>Statement::TypeDef(type_def),
     <var:VarDef> StatementEnd=>Statement::VarDef(var),
+    <var:ConstVarDef> StatementEnd=>Statement::ConstVarDef(var),
+    <var:StaticVarDef> StatementEnd=>Statement::StaticVarDef(var),
     <assign:VarAssign> StatementEnd=>Statement::VarAssign(assign),
-    <"DocComment">=>Statement::Doc(<>),
+    <e:Enum>=>Statement::Enum(e),
+    <ImportStmt> StatementEnd,
+    <Module> StatementEnd,
+    <i:Impl>=>Statement::Impl(i),
+};
+Impl:Impl<'input>={
+    "impl" <params:TypeParameters?> <for_ty:Type> <block:Block>=>Impl{params,interface:None,for_ty,block},
+    "impl" <params:TypeParameters?> <interface:Type> "for" <for_ty:Type> <block:Block>=>Impl{params,interface:Some(interface),for_ty,block},
+};
+Module:Statement<'input>="module" <name:Word>=>Statement::Module(name);
+Enum:Enum<'input>={
+    <public:Public?> "enum" <name:Word> <params:TypeParameters?> "{" SkipNewline? <variants:(<Type> ObjectFieldEnd)*> <last:Type> ObjectFieldEnd? "}"=>{
+        let mut variants=variants;
+        variants.push(last);
+        return Enum{public,name,params,variants};
+    },
+    <public:Public?> "enum" <name:Word> <params:TypeParameters?> "{" SkipNewline? "}"=>return Enum{public,name,params,variants:Vec::new()},
+};
+ImportStmt:Statement<'input>="import" <import:Import>=>Statement::Import(import);
+Import:Import<'input>={
+    <path:Word>=>Import::Path(vec![path]),
+    <paths:(<Word> "::")+> <last:Word>=>{
+        let mut paths=paths;
+        paths.push(last);
+        return Import::Path(paths);
+    },
+    <path:(<Word> "::")+> <block:ImportBlock>=>Import::PathBlock{path,block},
+};
+ImportBlock:Vec<Import<'input>>={
+    "{" "}"=>Vec::new(),
+    "{" SkipNewline? <imports:(<Import> ObjectFieldEnd)*> <last:Import> ObjectFieldEnd? "}"=>{
+        let mut imports=imports;
+        imports.push(last);
+        return imports;
+    },
 };
 Expr:Expr<'input>={
-    <MethodCall>,
-    <FunctionCall>,
-    <AssociatedPath>,
-    <FieldPath>,
-    <Var>,
+    "&" <r:BooleanOps>=>Expr::Ref(Box::new(r)),
+    "&" "mut" <r:BooleanOps>=>Expr::RefMut(Box::new(r)),
+    <path:AssociatedPath>=>Expr::AssociatedPath(path),
     <function:AnonFunction>=>Expr::AnonFunction(function),
-    <l:Expr> "&" <r:Comparison>=>Expr::And(Box::new([l,r])),
-    <l:Expr> "|" <r:Comparison>=>Expr::Or(Box::new([l,r])),
-    "!" <l:Comparison>=>Expr::Not(Box::new(l)),
-    //"{" <fields:(<Word> ":" <Expr> ObjectFieldEnd)+> "}"=>Expr::Object(fields),
+    "!" <l:BooleanOps>=>Expr::Not(Box::new(l)),
+    "{" <fields:(<ObjectField> ObjectFieldEnd)*> <last:ObjectField> ObjectFieldEnd? "}"=>{
+        let mut fields=fields;
+        fields.push(last);
+        return Expr::ObjectCreation(fields);
+    },
+    <BooleanOps>,
+};
+BooleanOps:Expr<'input>={
+    <l:BooleanOps> "and" <r:Comparison>=>Expr::And(Box::new([l,r])),
+    <l:BooleanOps> "or" <r:Comparison>=>Expr::Or(Box::new([l,r])),
     <Comparison>,
 };
 Comparison:Expr<'input>={
@@ -282,6 +360,7 @@ Comparison:Expr<'input>={
     <l:Comparison> "<=" <r:Operand>=>Expr::LessEqual(Box::new([l,r])),
     <l:Comparison> ">" <r:Operand>=>Expr::Greater(Box::new([l,r])),
     <l:Comparison> "<" <r:Operand>=>Expr::Less(Box::new([l,r])),
+    <l:Comparison> "is" <r:Type>=>Expr::IsType(Box::new(l),r),
     <Operand>,
 };
 Operand:Expr<'input>={
@@ -293,71 +372,196 @@ Factor:Expr<'input>={
     <l:Factor> "*" <r:Term>=>Expr::Mul(Box::new([l,r])),
     <l:Factor> "/" <r:Term>=>Expr::Div(Box::new([l,r])),
     <l:Factor> "%" <r:Term>=>Expr::Mod(Box::new([l,r])),
+    <CallPaths>,
+};
+CallPaths:Expr<'input>={
+    <from:CallPaths> "." <name:Word> "(" ")"=>Expr::MethodCall{
+        from:Box::new(from),
+        name,
+        args:Vec::new()
+    },
+    <from:CallPaths> "." <name:Word> "(" <args:(<Expr> ObjectFieldEnd)*> <last:Expr> ObjectFieldEnd? ")"=>{
+        let mut args=args;
+        args.push(last);
+        return Expr::MethodCall {
+            from:Box::new(from),
+            name,
+            args,
+        };
+    },
+    <from:CallPaths> "." <name:Word>=>Expr::FieldAccess{from:Box::new(from),name},
+    <f:FunctionCall>=>Expr::FunctionCall(f),
     <Term>,
 };
 Term:Expr<'input>={
-    <s:String>=>Expr::Data(s),
-    <c:Char>=>Expr::Data(c),
-    <num:Number>=>Expr::Data(num),
-    "-" <num:Number>=>Expr::Negate(Box::new(Expr::Data(num))),
-    <num:Float>=>Expr::Data(num),
-    "-" <num:Float>=>Expr::Negate(Box::new(Expr::Data(num))),
+    "this"=>Expr::Var("this"),
+    <Var>,
+    <d:Data>=>Expr::Data(d),
+    <ExprStatements>,
+};
+ExprStatements:Expr<'input>={
     <block:Block>=>Expr::Block(block),
+    <ForeverLoop>,
+    <WhileLoop>,
+    <ForLoop>,
+    <m:Match>=>Expr::Match(Box::new(m)),
     "(" <Expr> ")",
 };
-Public:Visibility={
-    "pub" "(" <w:Word> ")"=>{
-        // temporary workaround. Hopefully I can specify `Word("lib")`, but it depends on the generated parser code.
-        match w {
-            "lib"=>Visibility::Library,
-            "local"=>Visibility::Local,
-            _=>Visibility::Full,
-        }
+Data:Data<'input>={
+    <Bool>,
+    <String>,
+    <Char>,
+    <Float>,
+    <Number>,
+};
+MatchPattern:MatchPattern<'input>={
+    <d:Data>=>MatchPattern::Data(d),
+    <s:MatchPatternStructure>=>MatchPattern::Structure(s),
+    "." <name:Word> "(" ")"=>MatchPattern::MethodCall{name,args:Vec::new()},
+    "." <name:Word> "(" <args:(<Expr> ObjectFieldEnd)*> <last:Expr> ObjectFieldEnd? ")"=>{
+        let mut args=args;
+        args.push(last);
+        return MatchPattern::MethodCall {
+            name,
+            args,
+        };
     },
+    <v:Word>=>MatchPattern::Var(v),
+    "==" <r:Expr>=>MatchPattern::Equal(r),
+    "!=" <r:Expr>=>MatchPattern::NotEqual(r),
+    ">=" <r:Expr>=>MatchPattern::GreaterEqual(r),
+    "<=" <r:Expr>=>MatchPattern::LessEqual(r),
+    ">" <r:Expr>=>MatchPattern::Greater(r),
+    "<" <r:Expr>=>MatchPattern::Less(r),
+    "is" <r:Type>=>MatchPattern::IsType(r),
+};
+MatchPatternStructure:MatchPatternStructure<'input>={
+    // exact, fields
+    <type_name:Word> "{" <block:(<MatchPatternStructureItem> ObjectFieldEnd)*> <last:MatchPatternStructureItem> ObjectFieldEnd? "}"=>{
+        let mut block=block;
+        block.push(last);
+        return MatchPatternStructure::TypedBlock{exact:true,type_name,block};
+    },
+    // inexact, fields
+    <type_name:Word> "{" <block:(<MatchPatternStructureItem> ObjectFieldEnd)*> <last:MatchPatternStructureItem> ObjectFieldEnd "..." "}"=>{
+        let mut block=block;
+        block.push(last);
+        return MatchPatternStructure::TypedBlock{exact:false,type_name,block};
+    },
+    // maybe exact, no fields
+    <type_name:Word> "{" SkipNewline? <etc:"..."?> "}"=>{
+        return MatchPatternStructure::TypedBlock{exact:etc.is_some(),type_name,block:Vec::new()};
+    },
+    // exact, fields
+    "{" <block:(<MatchPatternStructureItem> ObjectFieldEnd)*> <last:MatchPatternStructureItem> ObjectFieldEnd? "}"=>{
+        let mut block=block;
+        block.push(last);
+        return MatchPatternStructure::Block{exact:true,block};
+    },
+    // inexact, fields
+    "{" <block:(<MatchPatternStructureItem> ObjectFieldEnd)*> <last:MatchPatternStructureItem> ObjectFieldEnd "..." "}"=>{
+        let mut block=block;
+        block.push(last);
+        return MatchPatternStructure::Block{exact:false,block};
+    },
+    // maybe exact, no fields
+    "{" SkipNewline? <etc:"..."?> "}"=>{
+        return MatchPatternStructure::Block{exact:etc.is_some(),block:Vec::new()};
+    },
+};
+MatchPatternStructureItem:MatchPatternStructureItem<'input>={
+    <name:Word>=>MatchPatternStructureItem::Field(name),
+    <name:Word> ":" <rename:Word>=>MatchPatternStructureItem::NamedField{name,rename},
+    <name:Word> ":" <block:MatchPatternStructure>=>MatchPatternStructureItem::NamedBlock{name,block},
+};
+Match:Match<'input>={
+    "match" <to_match:Expr> "{" SkipNewline? "}"=>Match{to_match,leafs:Vec::new()},
+    "match" <to_match:Expr> "{" SkipNewline? <leafs:(<MatchPattern> "=>" <Expr> ObjectFieldEnd)*> <last:(<MatchPattern> "=>" <Expr>)> ObjectFieldEnd? "}"=>{
+        let mut leafs=leafs;
+        leafs.push(last);
+        return Match{to_match,leafs};
+    },
+};
+ForeverLoop:Expr<'input>="loop" <block:Block>=>Expr::ForeverLoop(block);
+WhileLoop:Expr<'input>="while" <condition:Expr> <block:Block>=>Expr::WhileLoop{condition:Box::new(condition),block};
+ForLoop:Expr<'input>="for" <var:Word> "in" <iterator:Expr> <block:Block>=>Expr::ForLoop{var,iterator:Box::new(iterator),block};
+ObjectField:ObjectField<'input>={
+    <public:Public?> <mutable:Mutable?> <name:Word> "=" <data:Expr>=>ObjectField{public,mutable,name,data},
+    <public:Public?> <mutable:Mutable?> <name:Word>=>ObjectField{public,mutable,name,data:Expr::Var(name)},
+};
+Public:Visibility={
+    "pub" "(" <Visibility> ")",
+    "pub" "(" <l:@L> ")" <r:@R>=>?Err(ParseError::UnrecognizedToken{
+        token:(l,Token::ParenthesisEnd,r),
+        expected:vec![
+            "\"lib\"".into(),
+            "\"local\"".into(),
+            "\"full\"".into()
+        ],
+    }),
     "pub"=>Visibility::Full,
 };
 Mutable:Visibility={
-    "mut" "(" <w:Word> ")"=>{
-        match w {
-            "lib"=>Visibility::Library,
-            "local"=>Visibility::Local,
-            _=>Visibility::Full,
-        }
-    },
+    "mut" "(" <Visibility> ")",
+    "mut" "(" <l:@L> ")" <r:@R>=>?Err(ParseError::UnrecognizedToken{
+        token:(l,Token::ParenthesisEnd,r),
+        expected:vec![
+            "\"lib\"".into(),
+            "\"local\"".into(),
+            "\"full\"".into()
+        ],
+    }),
     "mut"=>Visibility::Full,
 };
+Visibility:Visibility={
+    <l:@L> <w:Word> <r:@R>=>?{
+        match w {
+            "lib"=>Ok(Visibility::Library),
+            "local"=>Ok(Visibility::Local),
+            "full"=>Ok(Visibility::Full),
+            _=>Err(ParseError::UnrecognizedToken{token:(l,Token::Word(w),r),expected:vec!["\"lib\"".into(),"\"local\"".into(),"\"full\"".into()]}),
+        }
+    },
+};
 Interface:Interface<'input>={
-    <public:Public?> "interface" <name:Word> <requirement:(":" <Type>)?> <block:Block>=>Interface {
-        public:public.into(),
+    <public:Public?> "interface" <name:Word> <params:TypeParameters?> <requirement:(":" <Type>)?> <block:Block>=>Interface {
+        public,
         name,
+        params,
         requirement,
         block,
     },
 };
 TypeDef:TypeDef<'input>={
-    <public:Public?> "type" <name:Word> "=" <ty:Type>=>TypeDef{public:public.into(),name,ty},
+    <public:Public?> "type" <name:Word> <params:TypeParameters?> "=" <ty:Type>=>TypeDef{public,name,params,ty},
 };
 VarDef:VarDef<'input>={
-    <public:Public?> <mutable:Mutable?> <name:Word> ":=" <data:Expr>=>VarDef{public:public.into(),mutable:mutable.into(),name,data:Some(data),ty:None},
-    <public:Public?> <mutable:Mutable?> <name:Word> ":" <ty:Type> "=" <data:Expr>=>VarDef{public:public.into(),mutable:mutable.into(),name,data:Some(data),ty:Some(ty)},
-    <public:Public?> <mutable:Mutable?> <name:Word> ":" <ty:Type>=>VarDef{public:public.into(),mutable:mutable.into(),name,data:None,ty:Some(ty)},
+    <public:Public?> <mutable:Mutable?> <name:Word> ":=" <data:Expr>=>VarDef{public,mutable,name,data:data,ty:None},
+    <public:Public?> <mutable:Mutable?> <name:Word> ":" <ty:Type> "=" <data:Expr>=>VarDef{public,mutable,name,data:data,ty:Some(ty)},
 };
+ConstVarDef:ConstVarDef<'input>=<public:Public?> "const" <name:Word> ":" <ty:Type> "=" <data:Expr>=>ConstVarDef{public,name,data:data,ty:ty};
+StaticVarDef:StaticVarDef<'input>=<public:Public?> "static" <mutable:Mutable?> <name:Word> ":" <ty:Type> "=" <data:Expr>=>StaticVarDef{public,mutable,name,data:data,ty:ty};
 VarAssign:VarAssign<'input>=<name:Word> "=" <data:Expr>=>VarAssign{name,data};
 
 
-TypeObjectField:TypeObjectField<'input>={
-    <doc:"DocComment"?> <name:Word> ":" <ty:Type>=>TypeObjectField{public:Visibility::None,mutable:Visibility::None,name,ty,doc},
-    <doc:"DocComment"?> <mutable:Mutable> <name:Word> ":" <ty:Type>=>TypeObjectField{public:Visibility::None,mutable,name,ty,doc},
-    <doc:"DocComment"?> <public:Public> <name:Word> ":" <ty:Type>=>TypeObjectField{public,mutable:Visibility::None,name,ty,doc},
-    <doc:"DocComment"?> <public:Public> <mutable:Mutable> <name:Word> ":" <ty:Type>=>TypeObjectField{public,mutable,name,ty,doc},
-};
+TypeObjectField:TypeObjectField<'input>=<public:Public?> <mutable:Mutable?> <name:Word> ":" <ty:Type>=>TypeObjectField{public,mutable,name,ty};
 ObjectFieldEnd:()={
+    "," SkipNewline=>(),
     ","=>(),
-    "Newline"=>(),
 };
 String:Data<'input>="String"=>Data::String(<>.into());
-Number:Data<'input>="Number"=>Data::GenericNumber(<>);
-Float:Data<'input>="Float"=>Data::GenericFloat(<>);
+Number:Data<'input>={
+    "Number"=>Data::GenericNumber(false,<>),
+    "-" <n:"Number">=>Data::GenericNumber(true,n),
+};
+Float:Data<'input>={
+    "Float"=>Data::GenericFloat(false,<>),
+    "-" <f:"Float">=>Data::GenericFloat(true,f),
+};
+Bool:Data<'input>={
+    "true"=>Data::Bool(true),
+    "false"=>Data::Bool(false),
+};
 Char:Data<'input>={
     "'" "\\" "'" "'"=>Data::Char('\''),
     "'" "\\" "\\" "'"=>Data::Char('\\'),
@@ -412,36 +616,30 @@ Char:Data<'input>={
     },
 };
 Var:Expr<'input>=<name:Word>=>Expr::Var(name);
-AssociatedPath:Expr<'input>=<first:Word> <path:AdditionalAssociated+>=>{
+AssociatedPath:Vec<&'input str>=<first:Word> <path:AdditionalAssociated+>=>{
     let mut path=path;
     path.insert(0,first);
-    return Expr::AssociatedPath(path);
+    return path;
 };
 AdditionalAssociated:&'input str="::" <Word>;
-FieldPath:Expr<'input>=<from:Expr> "." <name:Word>=>Expr::FieldAccess{from:Box::new(from),name};
 MethodCall:Expr<'input>={
-    <from:Expr> "." <name:Word> "(" ")"=>Expr::MethodCall{
-        from:Box::new(from),
-        name,
-        args:Vec::new()
-    },
-    <from:Expr> "." <name:Word> "(" <args:(<Expr> ObjectFieldEnd)*> <last:Expr> ObjectFieldEnd? ")"=>{
-        let mut args=args;
-        args.push(last);
-        return Expr::MethodCall {
-            from:Box::new(from),
-            name,
-            args,
-        };
-    },
 };
-FunctionCall:Expr<'input>={
-    <name:Word> "(" ")"=>Expr::FunctionCall{name,args:Vec::new()},
+FunctionCall:FunctionCall<'input>={
+    <name:Word> "(" ")"=>FunctionCall{path:vec![name],args:Vec::new()},
     <name:Word> "(" <args:(<Expr> ObjectFieldEnd)*> <last:Expr> ObjectFieldEnd? ")"=>{
         let mut args=args;
         args.push(last);
-        return Expr::FunctionCall {
-            name,
+        return FunctionCall {
+            path:vec![name],
+            args,
+        };
+    },
+    <path:AssociatedPath> "(" ")"=>FunctionCall{path,args:Vec::new()},
+    <path:AssociatedPath> "(" <args:(<Expr> ObjectFieldEnd)*> <last:Expr> ObjectFieldEnd? ")"=>{
+        let mut args=args;
+        args.push(last);
+        return FunctionCall {
+            path,
             args,
         };
     },

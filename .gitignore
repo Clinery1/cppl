@@ -1,4 +1,6 @@
 /target
 /spec.md
+/build
+/run
 **/*.old
 **/*.bak
