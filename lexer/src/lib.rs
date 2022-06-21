@@ -7,10 +7,7 @@ use std::fmt::{
     Formatter,
     Result as FmtResult,
 };
-use crate::{
-    Error,
-    ErrorLevel,
-};
+use cppl_error::*;
 
 
 #[derive(Logos,Debug,PartialEq,Clone)]
@@ -72,11 +69,11 @@ pub enum Token<'input> {
     LessEqual,
     #[token("<")]
     Less,
-    #[token("==")]
+    #[token("=")]
     Equal,
     #[token("!=")]
     NotEqual,
-    #[token("=")]
+    #[token("<-")]
     Assign,
     #[token("-")]
     Dash,
@@ -152,7 +149,7 @@ impl<'source> Display for Token<'source> {
             Less=>write!(f,"token: `<`"),
             Equal=>write!(f,"token: `==`"),
             NotEqual=>write!(f,"token: `!="),
-            Assign=>write!(f,"token: `=`"),
+            Assign=>write!(f,"token: `<-`"),
             Dash=>write!(f,"token: `-`"),
             Dot=>write!(f,"token: `.`"),
             Etc=>write!(f,"token: `...`"),
@@ -236,13 +233,6 @@ impl Display for Keyword {
 }
 
 
-#[derive(Copy,Clone,Debug,PartialEq,Default)]
-pub struct Location {
-    pub line_start_index:usize,
-    pub index:usize,
-    pub line:usize,
-    pub column:usize,
-}
 pub struct TokenIterator<'input> {
     //input:&'input str,
     skip_doc_comments:bool,
@@ -288,7 +278,7 @@ impl<'input> Iterator for TokenIterator<'input> {
                     self.next_token=self.lexer.next();
                     self.line+=span.end-span.start;
                     self.line_start=span.end;
-                    println!("Token after newline: {:?}",self.next_token);
+                    //println!("Token after newline: {:?}",self.next_token);
                     match &self.next_token {
                         Some(Token::Newline)=>continue,
                         Some(Token::DocComment(_))=>if self.skip_doc_comments{continue},
